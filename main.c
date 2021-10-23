@@ -1,0 +1,1 @@
+void efi_main() { }

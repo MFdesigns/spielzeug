@@ -1,6 +1,13 @@
 #pragma once
 #include "types.h"
 
+typedef uint64_t EFI_STATUS;
+typedef void* EFI_HANDLE;
+typedef void* EFI_EVENT;
+typedef uint64_t EFI_TPL;
+typedef uint64_t EFI_PHYSICAL_ADDRESS;
+typedef uint64_t EFI_VIRTUAL_ADDRESS;
+
 typedef struct EFI_GUID {
     uint32_t data1;
     uint16_t data2;
@@ -8,9 +15,40 @@ typedef struct EFI_GUID {
     uint8_t data4[8];
 } EFI_GUID;
 
-typedef uint64_t EFI_STATUS;
-typedef void* EFI_HANDLE;
-typedef void* EFI_EVENT;
+typedef struct EFI_MEMORY_DESCRIPTOR {
+    uint32_t type;
+    EFI_PHYSICAL_ADDRESS physicalStart;
+    EFI_VIRTUAL_ADDRESS virtualStart;
+    uint64_t numberOfPages;
+    uint64_t attribute;
+} EFI_MEMORY_DESCRIPTOR;
+
+typedef enum EFI_ALLOCATE_TYPE {
+    ALLOCATE_ANY_PAGES,
+    ALLOCATE_MAX_ADDRESS,
+    ALLOCATE_ADDRESS,
+    MAX_ALLOCATE_TYPE,
+} EFI_ALLOCATE_TYPE;
+
+typedef enum EFI_MEMORY_TYPE {
+    EFI_RESERVED_MEMORY_TYPE,
+    EFI_LOADER_CODE,
+    EFI_LOADER_DATA,
+    EFI_BOOT_SERVICES_CODE,
+    EFI_BOOT_SERVICES_DATA,
+    EFI_RUNTIME_SERVICES_CODE,
+    EFI_RUNTIME_SERVICES_DATA,
+    EFI_CONVENTIONAL_MEMORY,
+    EFI_UNUSABLE_MEMORY,
+    EFI_ACPI_RECLAIM_MEMORY,
+    EFI_ACPI_MEMORY_NVS,
+    EFI_MEMORY_MAPPED_IO,
+    EFI_MEMORY_MAPPED_IO_PORT_SPACE,
+    EFI_PAL_CODE,
+    EFI_PERSISTANT_MEMORY,
+    EFI_UNACCEPTED_MEMORY_TYPE,
+    EFI_MAX_MEMORY_TYPE,
+} EFI_MEMORY_TYPE;
 
 typedef struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL EFI_SIMPLE_TEXT_INPUT_PROTOCOL;
 typedef struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
@@ -32,6 +70,15 @@ typedef EFI_STATUS (*EFI_TEXT_SET_ATTRIBUTE) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* t
 typedef EFI_STATUS (*EFI_TEXT_CLEAR_SCREEN) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this);
 typedef EFI_STATUS (*EFI_TEXT_SET_CURSOR_POSITION) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, uint64_t column, uint64_t row);
 typedef EFI_STATUS (*EFI_TEXT_ENABLE_CURSOR) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, bool visible);
+
+typedef EFI_TPL (*EFI_RAISE_TPL) (EFI_TPL newTpl);
+typedef void (*EFI_RESTORE_TPL) (EFI_TPL oldTpl);
+
+typedef EFI_STATUS (*EFI_ALLOCATE_PAGES) (EFI_ALLOCATE_TYPE type, EFI_MEMORY_TYPE memoryType, uint64_t pages, EFI_PHYSICAL_ADDRESS* memory);
+typedef EFI_STATUS (*EFI_FREE_PAGES) (EFI_PHYSICAL_ADDRESS* memory, uint64_t pages);
+typedef EFI_STATUS (*EFI_GET_MEMORY_MAP) (uint64_t* memoryMapSize, EFI_MEMORY_DESCRIPTOR* memoryMap, uint64_t* mapKey, uint64_t* descriptorSize, uint32_t* descriptorVersion);
+typedef EFI_STATUS (*EFI_ALLOCATE_POOL) (EFI_MEMORY_TYPE poolType, uint64_t size, void** buffer);
+typedef EFI_STATUS (*EFI_FREE_POOL) (void* buffer);
 
 const EFI_STATUS EFI_SUCCESS = 0;
 
@@ -98,7 +145,6 @@ struct EFI_RUNTIME_SERVICES {
 
 typedef struct EFI_BOOT_SERVICES {
     EFI_TABLE_HEADER hdr;
-#if 0
     // Task priority services
     EFI_RAISE_TPL raiseTpl;
     EFI_RESTORE_TPL restoreTpl;
@@ -108,6 +154,7 @@ typedef struct EFI_BOOT_SERVICES {
     EFI_GET_MEMORY_MAP getMemoryMap;
     EFI_ALLOCATE_POOL allocatePool;
     EFI_FREE_POOL freePool;
+#if 0
     // Event and timer services
     EFI_CREATE_EVENT createEvent;
     EFI_SET_TIMER setTimer;

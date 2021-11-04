@@ -1,5 +1,5 @@
 #pragma once
-#include "types.h"
+#include "types.hpp"
 
 typedef uint64_t EFI_STATUS;
 typedef void* EFI_HANDLE;
@@ -8,29 +8,16 @@ typedef uint64_t EFI_TPL;
 typedef uint64_t EFI_PHYSICAL_ADDRESS;
 typedef uint64_t EFI_VIRTUAL_ADDRESS;
 
-typedef struct EFI_GUID {
-    uint32_t data1;
-    uint16_t data2;
-    uint16_t data3;
-    uint8_t data4[8];
-} EFI_GUID;
+const EFI_STATUS EFI_SUCCESS = 0;
 
-typedef struct EFI_MEMORY_DESCRIPTOR {
-    uint32_t type;
-    EFI_PHYSICAL_ADDRESS physicalStart;
-    EFI_VIRTUAL_ADDRESS virtualStart;
-    uint64_t numberOfPages;
-    uint64_t attribute;
-} EFI_MEMORY_DESCRIPTOR;
-
-typedef enum EFI_ALLOCATE_TYPE {
+enum EFI_ALLOCATE_TYPE {
     ALLOCATE_ANY_PAGES,
     ALLOCATE_MAX_ADDRESS,
     ALLOCATE_ADDRESS,
     MAX_ALLOCATE_TYPE,
-} EFI_ALLOCATE_TYPE;
+};
 
-typedef enum EFI_MEMORY_TYPE {
+enum EFI_MEMORY_TYPE {
     EFI_RESERVED_MEMORY_TYPE,
     EFI_LOADER_CODE,
     EFI_LOADER_DATA,
@@ -48,39 +35,48 @@ typedef enum EFI_MEMORY_TYPE {
     EFI_PERSISTANT_MEMORY,
     EFI_UNACCEPTED_MEMORY_TYPE,
     EFI_MAX_MEMORY_TYPE,
-} EFI_MEMORY_TYPE;
+};
 
-typedef struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL EFI_SIMPLE_TEXT_INPUT_PROTOCOL;
-typedef struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
-typedef struct EFI_INPUT_KEY EFI_INPUT_KEY;
-typedef struct SIMPLE_TEXT_OUTPUT_MODE SIMPLE_TEXT_OUTPUT_MODE;
-typedef struct EFI_TABLE_HEADER EFI_TABLE_HEADER;
-typedef struct EFI_GUID EFI_GUID;
-typedef struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
-typedef struct EFI_RUNTIME_SERVICES EFI_RUNTIME_SERVICES;
+// Forward decls
+struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL;
+struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
+struct EFI_MEMORY_DESCRIPTOR;
+struct EFI_INPUT_KEY;
 
-typedef EFI_STATUS (*EFI_INPUT_RESET) (EFI_SIMPLE_TEXT_INPUT_PROTOCOL* this, bool extendedVerification);
-typedef EFI_STATUS (*EFI_INPUT_READ_KEY) (EFI_SIMPLE_TEXT_INPUT_PROTOCOL* this, EFI_INPUT_KEY* key);
-typedef EFI_STATUS (*EFI_TEXT_RESET) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, bool extendedVerification);
-typedef EFI_STATUS (*EFI_TEXT_STRING) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, char16_t* string);
-typedef EFI_STATUS (*EFI_TEXT_TEST_STRING) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, char16_t* string);
-typedef EFI_STATUS (*EFI_TEXT_QUERY_MODE) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, uint64_t modeNumber, uint64_t* columns, uint64_t* rows);
-typedef EFI_STATUS (*EFI_TEXT_SET_MODE) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, uint64_t modeNumber);
-typedef EFI_STATUS (*EFI_TEXT_SET_ATTRIBUTE) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, uint64_t attribute);
-typedef EFI_STATUS (*EFI_TEXT_CLEAR_SCREEN) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this);
-typedef EFI_STATUS (*EFI_TEXT_SET_CURSOR_POSITION) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, uint64_t column, uint64_t row);
-typedef EFI_STATUS (*EFI_TEXT_ENABLE_CURSOR) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this, bool visible);
-
+// Function decls
+typedef EFI_STATUS (*EFI_INPUT_RESET) (EFI_SIMPLE_TEXT_INPUT_PROTOCOL* this_, bool extendedVerification);
+typedef EFI_STATUS (*EFI_INPUT_READ_KEY) (EFI_SIMPLE_TEXT_INPUT_PROTOCOL* this_, EFI_INPUT_KEY* key);
+typedef EFI_STATUS (*EFI_TEXT_RESET) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this_, bool extendedVerification);
+typedef EFI_STATUS (*EFI_TEXT_STRING) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this__, char16_t* string);
+typedef EFI_STATUS (*EFI_TEXT_TEST_STRING) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this_, char16_t* string);
+typedef EFI_STATUS (*EFI_TEXT_QUERY_MODE) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this_, uint64_t modeNumber, uint64_t* columns, uint64_t* rows);
+typedef EFI_STATUS (*EFI_TEXT_SET_MODE) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this_, uint64_t modeNumber);
+typedef EFI_STATUS (*EFI_TEXT_SET_ATTRIBUTE) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this_, uint64_t attribute);
+typedef EFI_STATUS (*EFI_TEXT_CLEAR_SCREEN) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this_);
+typedef EFI_STATUS (*EFI_TEXT_SET_CURSOR_POSITION) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this_, uint64_t column, uint64_t row);
+typedef EFI_STATUS (*EFI_TEXT_ENABLE_CURSOR) (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL* this_, bool visible);
 typedef EFI_TPL (*EFI_RAISE_TPL) (EFI_TPL newTpl);
 typedef void (*EFI_RESTORE_TPL) (EFI_TPL oldTpl);
-
 typedef EFI_STATUS (*EFI_ALLOCATE_PAGES) (EFI_ALLOCATE_TYPE type, EFI_MEMORY_TYPE memoryType, uint64_t pages, EFI_PHYSICAL_ADDRESS* memory);
 typedef EFI_STATUS (*EFI_FREE_PAGES) (EFI_PHYSICAL_ADDRESS* memory, uint64_t pages);
 typedef EFI_STATUS (*EFI_GET_MEMORY_MAP) (uint64_t* memoryMapSize, EFI_MEMORY_DESCRIPTOR* memoryMap, uint64_t* mapKey, uint64_t* descriptorSize, uint32_t* descriptorVersion);
 typedef EFI_STATUS (*EFI_ALLOCATE_POOL) (EFI_MEMORY_TYPE poolType, uint64_t size, void** buffer);
 typedef EFI_STATUS (*EFI_FREE_POOL) (void* buffer);
 
-const EFI_STATUS EFI_SUCCESS = 0;
+struct EFI_GUID {
+    uint32_t data1;
+    uint16_t data2;
+    uint16_t data3;
+    uint8_t data4[8];
+};
+
+struct EFI_MEMORY_DESCRIPTOR {
+    uint32_t type;
+    EFI_PHYSICAL_ADDRESS physicalStart;
+    EFI_VIRTUAL_ADDRESS virtualStart;
+    uint64_t numberOfPages;
+    uint64_t attribute;
+};
 
 struct EFI_INPUT_KEY {
     uint16_t scanCode;
@@ -143,7 +139,7 @@ struct EFI_RUNTIME_SERVICES {
 #endif
 };
 
-typedef struct EFI_BOOT_SERVICES {
+struct EFI_BOOT_SERVICES {
     EFI_TABLE_HEADER hdr;
     // Task priority services
     EFI_RAISE_TPL raiseTpl;
@@ -204,14 +200,14 @@ typedef struct EFI_BOOT_SERVICES {
     // UEFI 2.0+
     EFI_CREATE_EVENT_EX createEventEx;
 #endif
-} EFI_BOOT_SERVICES;
+};
 
-typedef struct EFI_CONFIGURATION_TABLE {
+struct EFI_CONFIGURATION_TABLE {
     EFI_GUID vendorGuid;
     void* vendorTable;
-} EFI_CONFIGURATION_TABLE;
+};
 
-typedef struct EFI_SYSTEM_TABLE {
+struct EFI_SYSTEM_TABLE {
     EFI_TABLE_HEADER hdr;
     char16_t* firmwareVendor;
     uint32_t firmwareRevision;
@@ -225,4 +221,4 @@ typedef struct EFI_SYSTEM_TABLE {
     EFI_BOOT_SERVICES* bootServices;
     uint64_t numberOfTableEntries;
     EFI_CONFIGURATION_TABLE* configurationTable;
-} EFI_SYSTEM_TABLE;
+};

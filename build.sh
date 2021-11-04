@@ -7,5 +7,5 @@ LDFLAGS='-target x86_64-unknown-windows
          -Wl,-subsystem:efi_application
          -fuse-ld=lld-link'
  
-clang $CFLAGS -c -o main.o main.c
+clang $CFLAGS -c -o main.o main.cpp
 clang $LDFLAGS -o BOOTX64.EFI main.o

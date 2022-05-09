@@ -4,6 +4,7 @@
 #include <cwchar>
 
 const uint32_t IMAGE_SIZE = 1024 * 1000;
+const uint32_t LOGICAL_BLOCK_SIZE = 512;
 const uint64_t EFI_PART_MAGIC = 0x5452415020494645; // "EFI PART"
 const uint32_t GPT_HEADER_VERSION = 0x00010000; // Version 1.0
 const uint32_t GPT_PARTITION_ENTRY_SIZE = 128;
@@ -214,8 +215,99 @@ uint32_t createGptPartitionArray(uint8_t* dest) {
     return crc;
 }
 
+struct __attribute__((__packed__)) Fat32BootSector {
+    uint8_t jmpBoot[3];
+    uint64_t oemName;
+    uint16_t bytesPerSector;
+    uint8_t sectorsPerCluster;
+    uint16_t reservedSectorCount;
+    uint8_t numberOfFats;
+    uint16_t rootEntryCount;
+    uint16_t totalSector16;
+    uint8_t media;
+    uint16_t fatSize16;
+    uint16_t sectorPerTrack;
+    uint16_t numberOfHeads;
+    uint32_t hiddenSector;
+    uint32_t totalSector32;
+    uint32_t fatSize32;
+    uint16_t extFlags;
+    uint16_t fileSystemVersion;
+    uint32_t rootCluster;
+    uint16_t fileSystemInfo;
+    uint16_t backupBootSector;
+    uint64_t reserved1;
+    uint32_t reserved2;
+    uint8_t driverNumber;
+    uint8_t reserved3;
+    uint8_t bootSignature;
+    uint32_t volumeId;
+    uint8_t volumeLabel[11];
+    uint64_t fileSystemType;
+};
+
+void createFat32(uint8_t* dest) {
+    const uint64_t FAT32_OEM_NAME = 0x312E344E4957534D; // MSWIN4.1
+    const uint8_t FAT_MEDIA_TYPE_REMOVABLE = 0xF0;
+
+    uint32_t fatSectorCount = 128;
+    // Count of 32-bit integers
+    const uint32_t FAT_ENTRY_SIZE32 = 1;
+    const uint8_t FAT_EXTENDED_BOOT_SIGNATURE = 0x29;
+    // TODO: generate random volume id
+    const uint32_t VOLUME_ID = 0x219EB6E0;
+    const char VOLUME_LABEL[11] = {
+        'N', 'O', ' ', 'N', 'A', 'M', 'E',
+        ' ', ' ', ' ', ' ',
+    };
+    const char FS_TYPE_FAT[sizeof(uint64_t)] = {
+        'F', 'A', 'T', ' ',
+        ' ', ' ', ' ', ' ',
+    };
+
+    Fat32BootSector* sector = (Fat32BootSector*)dest;
+    sector->jmpBoot[0] = 0xEB; // jmp
+    sector->jmpBoot[1] = 0x00; // target
+    sector->jmpBoot[2] = 0x90; // nop
+    sector->oemName = FAT32_OEM_NAME; // nop
+    sector->bytesPerSector = LOGICAL_BLOCK_SIZE;
+    sector->sectorsPerCluster = 1;
+    sector->reservedSectorCount = 1;
+    sector->numberOfFats = 2;
+    sector->rootEntryCount = 0;
+    sector->totalSector16 = 0;
+    sector->media = FAT_MEDIA_TYPE_REMOVABLE;
+    sector->fatSize16 = 0;
+    sector->sectorPerTrack = 0;
+    sector->numberOfHeads = 0;
+    sector->hiddenSector = 0;
+    sector->totalSector32 = fatSectorCount;
+    sector->fatSize32 = FAT_ENTRY_SIZE32;
+    sector->extFlags = 0;
+    sector->fileSystemVersion = 0;
+    sector->rootCluster = 2;
+    sector->fileSystemInfo = 1;
+    // TODO: put backup boot sector there
+    sector->backupBootSector = 6;
+    sector->reserved1 = 0;
+    sector->reserved2 = 0;
+    // This is only used for Int 0x13 but lets fill it in anyway...
+    sector->driverNumber = 0x80;
+    sector->reserved3 = 0;
+    sector->bootSignature = FAT_EXTENDED_BOOT_SIGNATURE;
+    sector->volumeId = VOLUME_ID;
+    // TODO: should be the same as in root directory
+    // NOTE: volume label is only 11 bytes long but because it
+    // is followed by the fileSystemType we can write 12 bytes
+    uint64_t* volLabel64 = (uint64_t*)&sector->volumeLabel;
+    uint32_t* volLabel32 = (uint32_t*)&sector->volumeLabel[8];
+    *volLabel64 = *(uint64_t*)VOLUME_LABEL;
+    *volLabel32 = *(uint32_t*)&VOLUME_LABEL[8];
+
+    sector->fileSystemType = *(uint64_t*)FS_TYPE_FAT;
+}
+
 void createGpt(uint8_t* image) {
-    const uint32_t LOGICAL_BLOCK_SIZE = 512;
     const uint32_t PARTITION_RECORD_OFFSET = 446;
     const uint32_t MBR_SIGNATURE_OFFSET = 510;
     const uint8_t OS_TYPE_GPT_PROTECTIVE = 0xEE;
@@ -295,6 +387,9 @@ void createGpt(uint8_t* image) {
         LBA_ALTERNATE_GPT_PARTITION_ARRAY,
         alternatePartitionArrayCrc
     );
+
+    uint8_t* lbaFirstUsable = (uint8_t*)(image + LOGICAL_BLOCK_SIZE * LBA_FIRST_USABLE);
+    createFat32(lbaFirstUsable);
 }
 
 int main() {

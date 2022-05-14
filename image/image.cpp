@@ -246,14 +246,46 @@ struct __attribute__((__packed__)) Fat32BootSector {
     uint64_t fileSystemType;
 };
 
+struct __attribute__((__packed__)) FatFileSystemInfo {
+    uint32_t leadSignature;
+    uint8_t reserved1[480];
+    uint32_t structSignature;
+    uint32_t freeCount;
+    uint32_t nextFree;
+    uint8_t reserved2[12];
+    uint32_t trailSignature;
+};
+
 void createFat32(uint8_t* dest) {
     const uint64_t FAT32_OEM_NAME = 0x312E344E4957534D; // MSWIN4.1
     const uint8_t FAT_MEDIA_TYPE_REMOVABLE = 0xF0;
 
-    uint32_t fatSectorCount = 128;
-    // Count of 32-bit integers
-    const uint32_t FAT_ENTRY_SIZE32 = 1;
-    const uint8_t FAT_EXTENDED_BOOT_SIGNATURE = 0x29;
+    // FAT32 Memory Layout
+    // Sector   What                        Region
+    // ------------------------------------------------------
+    // 0        BIOS Parameter Block (BPB)  Reserved
+    // 1        FSInfo                      Reserved
+    // 2        Root Directory              Data 
+    // ...      Data Region                 Data                         
+
+#define FAT_SECTOR_SIZE             512
+#define FAT_CLUSTER_SECTOR_COUNT    1
+#define FAT_CLUSTER_SIZE            FAT_CLUSTER_SECTOR_COUNT * FAT_SECTOR_SIZE
+#define FAT_RESERVED_SECTOR_COUNT   2
+#define FAT_NUM_OF_FAT              2 // Primary and backup FAT
+#define FAT_TOTAL_SECTOR_COUNT      FAT_SECTOR_SIZE * 2 + FAT_RESERVED_SECTOR_COUNT \
+                                    + FAT_DATA_SECTOR_COUNT
+#define FAT_FSINFO_SECTOR           1
+#define FAT_ROOT_CLUSTER            2
+
+#define FAT_EXTENDED_BOOT_SIGNATURE 0x29
+
+    // Minimal amount of sectors for a valid FAT32 volume
+    uint32_t fatTableSectorCount = 512;
+    uint32_t fatDataSectorCount = 65536;
+    uint32_t fatTotalSectorCount = FAT_SECTOR_SIZE * 2 + FAT_RESERVED_SECTOR_COUNT 
+                                 + fatDataSectorCount;
+
     // TODO: generate random volume id
     const uint32_t VOLUME_ID = 0x219EB6E0;
     const char VOLUME_LABEL[11] = {
@@ -269,11 +301,11 @@ void createFat32(uint8_t* dest) {
     sector->jmpBoot[0] = 0xEB; // jmp
     sector->jmpBoot[1] = 0x00; // target
     sector->jmpBoot[2] = 0x90; // nop
-    sector->oemName = FAT32_OEM_NAME; // nop
-    sector->bytesPerSector = LOGICAL_BLOCK_SIZE;
-    sector->sectorsPerCluster = 1;
-    sector->reservedSectorCount = 1;
-    sector->numberOfFats = 2;
+    sector->oemName = FAT32_OEM_NAME;
+    sector->bytesPerSector = FAT_SECTOR_SIZE;
+    sector->sectorsPerCluster = FAT_CLUSTER_SECTOR_COUNT;
+    sector->reservedSectorCount = FAT_RESERVED_SECTOR_COUNT;
+    sector->numberOfFats = FAT_NUM_OF_FAT;
     sector->rootEntryCount = 0;
     sector->totalSector16 = 0;
     sector->media = FAT_MEDIA_TYPE_REMOVABLE;
@@ -281,14 +313,14 @@ void createFat32(uint8_t* dest) {
     sector->sectorPerTrack = 0;
     sector->numberOfHeads = 0;
     sector->hiddenSector = 0;
-    sector->totalSector32 = fatSectorCount;
-    sector->fatSize32 = FAT_ENTRY_SIZE32;
+    sector->totalSector32 = fatTotalSectorCount;
+    sector->fatSize32 = fatTableSectorCount;
     sector->extFlags = 0;
     sector->fileSystemVersion = 0;
-    sector->rootCluster = 2;
-    sector->fileSystemInfo = 1;
+    sector->rootCluster = FAT_ROOT_CLUSTER;
+    sector->fileSystemInfo = FAT_FSINFO_SECTOR;
     // TODO: put backup boot sector there
-    sector->backupBootSector = 6;
+    sector->backupBootSector = 0;
     sector->reserved1 = 0;
     sector->reserved2 = 0;
     // This is only used for Int 0x13 but lets fill it in anyway...
@@ -297,14 +329,39 @@ void createFat32(uint8_t* dest) {
     sector->bootSignature = FAT_EXTENDED_BOOT_SIGNATURE;
     sector->volumeId = VOLUME_ID;
     // TODO: should be the same as in root directory
-    // NOTE: volume label is only 11 bytes long but because it
-    // is followed by the fileSystemType we can write 12 bytes
+    // NOTE: This is a really ugly way of efficiently copying 
+    // the volume label which is only 11 bytes long but because 
+    // it is followed by the fileSystemType we can write 12 bytes
     uint64_t* volLabel64 = (uint64_t*)&sector->volumeLabel;
     uint32_t* volLabel32 = (uint32_t*)&sector->volumeLabel[8];
     *volLabel64 = *(uint64_t*)VOLUME_LABEL;
     *volLabel32 = *(uint32_t*)&VOLUME_LABEL[8];
 
     sector->fileSystemType = *(uint64_t*)FS_TYPE_FAT;
+
+    const uint32_t FS_LEAD_SIGNATURE = 0x41615252;
+    const uint32_t FS_STRUCT_SIGNATURE = 0x61417272;
+    const uint32_t FS_TRAIL_SIGNATURE = 0xAA550000;
+
+    FatFileSystemInfo* fsInfo = (FatFileSystemInfo*)(dest + FAT_FSINFO_SECTOR * LOGICAL_BLOCK_SIZE);
+    memset((void*)fsInfo, 0, sizeof(FatFileSystemInfo));
+
+    fsInfo->leadSignature = FS_LEAD_SIGNATURE;
+    fsInfo->structSignature = FS_STRUCT_SIGNATURE;
+    // TODO: fill in the actuall free cluster count 
+    // and next free cluster
+    fsInfo->freeCount = 0xFFFFFFFF;
+    fsInfo->nextFree = 0xFFFFFFFF;
+    fsInfo->trailSignature = FS_TRAIL_SIGNATURE;
+
+    // Debug info
+    uint32_t rootDirectorySectors = ((sector->rootEntryCount * 32) + (sector->bytesPerSector - 1)) / sector->bytesPerSector;
+    uint32_t firstDataSector = sector->reservedSectorCount + (sector->numberOfFats * sector->fatSize32)
+                             + rootDirectorySectors;
+
+    printf("FAT Info:\n");
+    printf("Root Dir Sectors: %u\n", rootDirectorySectors);
+    printf("First Data Sector: %u\n", firstDataSector);
 }
 
 void createGpt(uint8_t* image) {

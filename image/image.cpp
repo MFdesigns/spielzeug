@@ -3,8 +3,8 @@
 #include <Windows.h>
 #include <cwchar>
 
-const uint32_t IMAGE_SIZE = 1024 * 1000;
-const uint32_t LOGICAL_BLOCK_SIZE = 512;
+const uint32_t IMAGE_SIZE = 50000000;
+#define LOGICAL_BLOCK_SIZE  512
 const uint64_t EFI_PART_MAGIC = 0x5452415020494645; // "EFI PART"
 const uint32_t GPT_HEADER_VERSION = 0x00010000; // Version 1.0
 const uint32_t GPT_PARTITION_ENTRY_SIZE = 128;
@@ -92,7 +92,7 @@ struct Guid {
     uint8_t data4[8];
 };
 
-struct GptHeader {
+struct __attribute__((__packed__)) GptHeader {
     uint64_t signature;
     uint32_t revision;
     uint32_t headerSize;
@@ -200,7 +200,7 @@ uint32_t createGptPartitionArray(uint8_t* dest) {
     partEntry->uniquePartitionGuid.data4[7] = 0x3B;
     // Minimum lba 32 x 512 + lba 0 and lba 1; Maybe this should be 2048?
     partEntry->startingLba = 34;
-    partEntry->endingLba = 35;
+    partEntry->endingLba = 34 + 66562;
     partEntry->attributes = 0;
 
     // Partition name located at the end of GPT Partition Entry
@@ -214,6 +214,30 @@ uint32_t createGptPartitionArray(uint8_t* dest) {
     uint32_t crc = crc32(dest, ENTRY_COUNT * GPT_PARTITION_ENTRY_SIZE);
     return crc;
 }
+
+// FAT32 Memory Layout
+// Sector   What                        Region
+// ------------------------------------------------------
+// 0        BIOS Parameter Block (BPB)  Reserved
+// 1        FSInfo                      Reserved
+// 3        Emtpy sector with sign.     ???
+// 4        FAT Table                   FAT
+// ...      Root Directory              Data 
+// ...      Data Region                 Data                         
+
+#define FAT_SECTOR_SIZE             512
+#define FAT_CLUSTER_SECTOR_COUNT    1
+#define FAT_CLUSTER_SIZE            (FAT_CLUSTER_SECTOR_COUNT * FAT_SECTOR_SIZE)
+#define FAT_RESERVED_SECTOR_COUNT   3
+#define FAT_NUM_OF_FAT              2 // Primary and backup FAT
+#define FAT_TOTAL_SECTOR_COUNT      (FAT_SECTOR_SIZE * 2 + FAT_RESERVED_SECTOR_COUNT \
+                                    + FAT_DATA_SECTOR_COUNT)
+#define FAT_FSINFO_SECTOR           1
+#define FAT_ROOT_CLUSTER            2 // Relative to the data region
+
+#define FAT_EXTENDED_BOOT_SIGNATURE 0x29
+
+uint32_t firstDataSector;
 
 struct __attribute__((__packed__)) Fat32BootSector {
     uint8_t jmpBoot[3];
@@ -256,29 +280,28 @@ struct __attribute__((__packed__)) FatFileSystemInfo {
     uint32_t trailSignature;
 };
 
+struct __attribute__((__packed__)) FatDirectoryEntry {
+    uint8_t name[11];
+    uint8_t attribute;
+    uint8_t ntReserved;
+    uint8_t creationTimeTenth;
+    uint16_t creationTime;
+    uint16_t creationDate;
+    uint16_t lastAccessDate;
+    uint16_t firstClusterHigh;
+    uint16_t writeTime;
+    uint16_t writeDate;
+    uint16_t firstClusterLow;
+    uint32_t fileSize;
+};
+
+uint32_t getDataSector(uint32_t dataCluster) {
+    return (dataCluster - 2) * FAT_CLUSTER_SECTOR_COUNT + firstDataSector;
+}
+
 void createFat32(uint8_t* dest) {
     const uint64_t FAT32_OEM_NAME = 0x312E344E4957534D; // MSWIN4.1
     const uint8_t FAT_MEDIA_TYPE_REMOVABLE = 0xF0;
-
-    // FAT32 Memory Layout
-    // Sector   What                        Region
-    // ------------------------------------------------------
-    // 0        BIOS Parameter Block (BPB)  Reserved
-    // 1        FSInfo                      Reserved
-    // 2        Root Directory              Data 
-    // ...      Data Region                 Data                         
-
-#define FAT_SECTOR_SIZE             512
-#define FAT_CLUSTER_SECTOR_COUNT    1
-#define FAT_CLUSTER_SIZE            FAT_CLUSTER_SECTOR_COUNT * FAT_SECTOR_SIZE
-#define FAT_RESERVED_SECTOR_COUNT   2
-#define FAT_NUM_OF_FAT              2 // Primary and backup FAT
-#define FAT_TOTAL_SECTOR_COUNT      FAT_SECTOR_SIZE * 2 + FAT_RESERVED_SECTOR_COUNT \
-                                    + FAT_DATA_SECTOR_COUNT
-#define FAT_FSINFO_SECTOR           1
-#define FAT_ROOT_CLUSTER            2
-
-#define FAT_EXTENDED_BOOT_SIGNATURE 0x29
 
     // Minimal amount of sectors for a valid FAT32 volume
     uint32_t fatTableSectorCount = 512;
@@ -293,8 +316,8 @@ void createFat32(uint8_t* dest) {
         ' ', ' ', ' ', ' ',
     };
     const char FS_TYPE_FAT[sizeof(uint64_t)] = {
-        'F', 'A', 'T', ' ',
-        ' ', ' ', ' ', ' ',
+        'F', 'A', 'T', '3',
+        '2', ' ', ' ', ' ',
     };
 
     Fat32BootSector* sector = (Fat32BootSector*)dest;
@@ -338,6 +361,8 @@ void createFat32(uint8_t* dest) {
     *volLabel32 = *(uint32_t*)&VOLUME_LABEL[8];
 
     sector->fileSystemType = *(uint64_t*)FS_TYPE_FAT;
+    dest[510] = 0x55;
+    dest[511] = 0xAA;
 
     const uint32_t FS_LEAD_SIGNATURE = 0x41615252;
     const uint32_t FS_STRUCT_SIGNATURE = 0x61417272;
@@ -354,17 +379,79 @@ void createFat32(uint8_t* dest) {
     fsInfo->nextFree = 0xFFFFFFFF;
     fsInfo->trailSignature = FS_TRAIL_SIGNATURE;
 
+    // After the FSInfo there is a third sector which just seams to
+    // be empty and only contains a signature
+    uint8_t* thirdSector = (uint8_t*)fsInfo + FAT_SECTOR_SIZE;
+    thirdSector[510] = 0x55;
+    thirdSector[511] = 0xAA;
+
+
     // Debug info
     uint32_t rootDirectorySectors = ((sector->rootEntryCount * 32) + (sector->bytesPerSector - 1)) / sector->bytesPerSector;
-    uint32_t firstDataSector = sector->reservedSectorCount + (sector->numberOfFats * sector->fatSize32)
+    firstDataSector = sector->reservedSectorCount + (sector->numberOfFats * sector->fatSize32)
                              + rootDirectorySectors;
 
-    printf("FAT Info:\n");
+    uint32_t fatSize = 0;
+    uint32_t totalSector = 0;
+
+    if (sector->fatSize16 != 0) {
+        fatSize = sector->fatSize16;
+    } else {
+        fatSize = sector->fatSize32;
+    }
+
+    if (sector->totalSector16 != 0) {
+        totalSector = sector->totalSector16;
+    } else {
+        totalSector = sector->totalSector32;
+    }
+    uint32_t dataSector = totalSector - (sector->reservedSectorCount + (sector->numberOfFats * fatSize) + rootDirectorySectors);
+    uint32_t countOfClusters = dataSector / sector->sectorsPerCluster;
+
+    printf("====== FAT ======\n");
     printf("Root Dir Sectors: %u\n", rootDirectorySectors);
     printf("First Data Sector: %u\n", firstDataSector);
+    printf("Data Sectors: %u\n", dataSector);
+    printf("Count of Clusters: %u\n", countOfClusters);
+    printf("Total Sector Count: %u\n", fatTotalSectorCount);
+    if (countOfClusters < 4085) {
+        printf("Type: FAT12\n");
+    } else if (countOfClusters < 65525) {
+        printf("Type: FAT16\n");
+    } else {
+        printf("Type: FAT32\n");
+    }
+
+    // FAT Table
+#define FAT_ENTRY_MASK      0x0FFFFFFF
+#define FAT_BAD_CLUSTER     0x0FFFFFF7
+#define FAT_END_OF_CLUSTER  0x0FFFFFF8
+
+    uint32_t* fat = (uint32_t*)(dest + FAT_RESERVED_SECTOR_COUNT * FAT_SECTOR_SIZE);
+    fat[0] = (uint32_t)sector->media | 0x0FFFFF00;
+    fat[1] = 0x0FFFFFFF;
+    fat[2] = FAT_END_OF_CLUSTER; // Root Directory
+    
+    // Root Directory
+#define FAT_ATTR_READ_ONLY  0x01
+#define FAT_ATTR_HIDDEN     0x02
+#define FAT_ATTR_SYSTEM     0x04
+#define FAT_ATTR_VOLUME_ID  0x08
+#define FAT_ATTR_DIRECTORY  0x10
+#define FAT_ATTR_ARCHIVE    0x20
+#define FAT_ATTR_LONG_NAME  FAT_ATTR_READ_ONLY | \
+                            FAT_ATTR_HIDDEN | \
+                            FAT_ATTR_SYSTEM | \
+                            FAT_ATTR_VOLUME_ID
+
+    uint32_t rootSector = getDataSector(2);
+    FatDirectoryEntry* rootDir = (FatDirectoryEntry*)dest + rootSector * FAT_SECTOR_SIZE;
+    rootDir->attribute = FAT_ATTR_DIRECTORY;
+    rootDir->firstClusterHigh = 0;
+    rootDir->firstClusterLow = 3;
 }
 
-void createGpt(uint8_t* image) {
+uint32_t createGpt(uint8_t* image) {
     const uint32_t PARTITION_RECORD_OFFSET = 446;
     const uint32_t MBR_SIGNATURE_OFFSET = 510;
     const uint8_t OS_TYPE_GPT_PROTECTIVE = 0xEE;
@@ -382,15 +469,15 @@ void createGpt(uint8_t* image) {
     // lba n-1: Alternate GPT Partition Table
     
     const uint32_t GPT_PARTITION_ARRAY_SIZE = 32;
-    const uint32_t PARTITION_SIZE_LBA = 2;
+    // TODO: calculate this
+    const uint32_t PARTITION_SIZE_LBA = 66562; // Minimal size for FAT32
     
     const uint32_t LBA_PRIMARY_GPT = 1;
     const uint32_t LBA_GPT_PARTITION_ARRAY = 2;
     const uint32_t LBA_FIRST_USABLE = LBA_GPT_PARTITION_ARRAY + GPT_PARTITION_ARRAY_SIZE;
     const uint32_t LBA_LAST_USABLE = LBA_FIRST_USABLE + PARTITION_SIZE_LBA;
     const uint32_t LBA_ALTERNATE_GPT_PARTITION_ARRAY = LBA_LAST_USABLE + 1;
-    const uint32_t LBA_ALTERNATE_GPT = LBA_ALTERNATE_GPT_PARTITION_ARRAY + GPT_PARTITION_ARRAY_SIZE;
-    
+#define LBA_ALTERNATE_GPT   (LBA_ALTERNATE_GPT_PARTITION_ARRAY + GPT_PARTITION_ARRAY_SIZE)
 
     // Protective MBR
 
@@ -447,6 +534,20 @@ void createGpt(uint8_t* image) {
 
     uint8_t* lbaFirstUsable = (uint8_t*)(image + LOGICAL_BLOCK_SIZE * LBA_FIRST_USABLE);
     createFat32(lbaFirstUsable);
+
+    uint32_t imageSize = (LBA_ALTERNATE_GPT + 1) * LOGICAL_BLOCK_SIZE;
+
+    // Debug information
+    printf("====== GPT ======\n");
+    printf("Primary GPT LBA: %u\n", LBA_PRIMARY_GPT);
+    printf("Partition Array LBA: %u\n", LBA_GPT_PARTITION_ARRAY);
+    printf("First Usable LBA: %u\n", LBA_FIRST_USABLE);
+    printf("Last Usable LBA: %u\n", LBA_LAST_USABLE);
+    printf("Alternate GPT LBA: %u\n", LBA_ALTERNATE_GPT);
+    printf("LBA Size: %u\n", LOGICAL_BLOCK_SIZE);
+    printf("Image Size: %u\n", imageSize);
+
+    return imageSize;
 }
 
 int main() {
@@ -457,7 +558,7 @@ int main() {
         return 1;
     }
 
-    createGpt(image);
+    uint32_t imageSize = createGpt(image);
 
     HANDLE file = CreateFileW(
         L"spielzeug.iso",
@@ -482,7 +583,7 @@ int main() {
     int32_t writeRes = WriteFileEx(
         file,
         image,
-        IMAGE_SIZE,
+        imageSize,
         &overlapped,
         writeCallback
     );

@@ -1,13 +1,14 @@
-#include <cstdint>
-#include <cstdio>
+#include <stdint.h>
+#include <stdio.h>
 #include <Windows.h>
-#include <cwchar>
+#include <wchar.h>
+#include <stdbool.h>
 
-const uint32_t IMAGE_SIZE = 50000000;
-#define LOGICAL_BLOCK_SIZE  512
-const uint64_t EFI_PART_MAGIC = 0x5452415020494645; // "EFI PART"
-const uint32_t GPT_HEADER_VERSION = 0x00010000; // Version 1.0
-const uint32_t GPT_PARTITION_ENTRY_SIZE = 128;
+#define IMAGE_SIZE                  50000000
+#define LOGICAL_BLOCK_SIZE          512
+#define EFI_PART_MAGIC              0x5452415020494645 // "EFI PART"
+#define GPT_HEADER_VERSION          0x00010000 // Version 1.0
+#define GPT_PARTITION_ENTRY_SIZE    128
 
 static uint32_t CRC32_LOOKUP[256] = {
     0, 0x77073096, 0xEE0E612C, 0x990951BA,
@@ -102,7 +103,7 @@ struct __attribute__((__packed__)) GptHeader {
     uint64_t alternateLba;
     uint64_t firstUsableLba;
     uint64_t lastUsableLba;
-    Guid diskGuid;
+    struct Guid diskGuid;
     uint64_t partitionEntryLba;
     uint32_t numberOfPartitionEntries;
     uint32_t sizeOfPartitionEntry;
@@ -110,8 +111,8 @@ struct __attribute__((__packed__)) GptHeader {
 };
 
 struct GptPartitionEntry {
-    Guid partitionTypeGuid;
-    Guid uniquePartitionGuid;
+    struct Guid partitionTypeGuid;
+    struct Guid uniquePartitionGuid;
     uint64_t startingLba;
     uint64_t endingLba;
     uint64_t attributes;
@@ -143,10 +144,10 @@ void createGptPartitionTable(uint8_t* dest,
                              uint32_t partitionArrayLba,
                              uint32_t partitionArrayCrc) {
 
-    GptHeader* gptHeader = (GptHeader*)dest;
+    struct GptHeader* gptHeader = (struct GptHeader*)dest;
     gptHeader->signature = EFI_PART_MAGIC;
     gptHeader->revision = GPT_HEADER_VERSION;
-    gptHeader->headerSize = sizeof(GptHeader);
+    gptHeader->headerSize = sizeof(gptHeader);
     gptHeader->headerCrc32 = 0;
     gptHeader->reserved = 0;
     gptHeader->myLba = lba;
@@ -173,7 +174,7 @@ void createGptPartitionTable(uint8_t* dest,
 }
 
 uint32_t createGptPartitionArray(uint8_t* dest) {
-    GptPartitionEntry* partEntry = (GptPartitionEntry*)dest;
+    struct GptPartitionEntry* partEntry = (struct GptPartitionEntry*)dest;
     // GUID EFI System Partition
     partEntry->partitionTypeGuid.data1 = 0xC12A7328;
     partEntry->partitionTypeGuid.data2 = 0xF81F;
@@ -205,7 +206,7 @@ uint32_t createGptPartitionArray(uint8_t* dest) {
 
     // Partition name located at the end of GPT Partition Entry
     const wchar_t* PARTITION_NAME = L"Boot Partition";
-    wchar_t* partitionName = (wchar_t*)((uint8_t*)partEntry + sizeof(GptPartitionEntry));
+    wchar_t* partitionName = (wchar_t*)((uint8_t*)partEntry + sizeof(struct GptPartitionEntry));
     // Get partition name string in bytes plus null-terminator
     uint32_t partitionNameSize = wcsnlen_s(PARTITION_NAME, 32) * sizeof(wchar_t) + sizeof(wchar_t);
     memcpy(partitionName, PARTITION_NAME, partitionNameSize);
@@ -320,7 +321,7 @@ void createFat32(uint8_t* dest) {
         '2', ' ', ' ', ' ',
     };
 
-    Fat32BootSector* sector = (Fat32BootSector*)dest;
+    struct Fat32BootSector* sector = (struct Fat32BootSector*)dest;
     sector->jmpBoot[0] = 0xEB; // jmp
     sector->jmpBoot[1] = 0x00; // target
     sector->jmpBoot[2] = 0x90; // nop
@@ -368,8 +369,8 @@ void createFat32(uint8_t* dest) {
     const uint32_t FS_STRUCT_SIGNATURE = 0x61417272;
     const uint32_t FS_TRAIL_SIGNATURE = 0xAA550000;
 
-    FatFileSystemInfo* fsInfo = (FatFileSystemInfo*)(dest + FAT_FSINFO_SECTOR * LOGICAL_BLOCK_SIZE);
-    memset((void*)fsInfo, 0, sizeof(FatFileSystemInfo));
+    struct FatFileSystemInfo* fsInfo = (struct FatFileSystemInfo*)(dest + FAT_FSINFO_SECTOR * LOGICAL_BLOCK_SIZE);
+    memset((void*)fsInfo, 0, sizeof(struct FatFileSystemInfo));
 
     fsInfo->leadSignature = FS_LEAD_SIGNATURE;
     fsInfo->structSignature = FS_STRUCT_SIGNATURE;
@@ -445,7 +446,7 @@ void createFat32(uint8_t* dest) {
                             FAT_ATTR_VOLUME_ID
 
     uint32_t rootSector = getDataSector(2);
-    FatDirectoryEntry* rootDir = (FatDirectoryEntry*)dest + rootSector * FAT_SECTOR_SIZE;
+    struct FatDirectoryEntry* rootDir = (struct FatDirectoryEntry*)dest + rootSector * FAT_SECTOR_SIZE;
     rootDir->attribute = FAT_ATTR_DIRECTORY;
     rootDir->firstClusterHigh = 0;
     rootDir->firstClusterLow = 3;
@@ -481,7 +482,7 @@ uint32_t createGpt(uint8_t* image) {
 
     // Protective MBR
 
-    MbrPartitionRecord* partRecord = (MbrPartitionRecord*)&image[PARTITION_RECORD_OFFSET];
+    struct MbrPartitionRecord* partRecord = (struct MbrPartitionRecord*)&image[PARTITION_RECORD_OFFSET];
     // Set to non-bootable disk; Ignored on UEFI systems
     partRecord->bootIndicator = 0;
     partRecord->startingChs[0] = 0;
@@ -552,7 +553,7 @@ uint32_t createGpt(uint8_t* image) {
 
 int main() {
     HANDLE handle = GetCurrentProcess();
-    uint8_t* image = (uint8_t*)VirtualAllocEx(handle, nullptr, IMAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
+    uint8_t* image = (uint8_t*)VirtualAllocEx(handle, NULL, IMAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
     if (!image) {
         printf("Could not allocate image %lu\n", GetLastError());
         return 1;
@@ -564,16 +565,16 @@ int main() {
         L"spielzeug.iso",
         GENERIC_WRITE,
         0,
-        nullptr,
+        NULL,
         CREATE_ALWAYS,
         FILE_FLAG_OVERLAPPED,
-        nullptr
+        NULL
     );
 
-    OVERLAPPED overlapped{};
+    OVERLAPPED overlapped = {};
     overlapped.hEvent = CreateEventExW(
-        nullptr,
-        nullptr,
+        NULL,
+        NULL,
         0,
         SYNCHRONIZE
     );

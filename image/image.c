@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <Windows.h>
 #include <wchar.h>
 #include <stdbool.h>
@@ -9,6 +10,24 @@
 #define EFI_PART_MAGIC              0x5452415020494645 // "EFI PART"
 #define GPT_HEADER_VERSION          0x00010000 // Version 1.0
 #define GPT_PARTITION_ENTRY_SIZE    128
+#define FAT_DIR_NAME_SIZE           11
+
+// FAT Entry
+#define FAT_ENTRY_MASK      0x0FFFFFFF
+#define FAT_BAD_CLUSTER     0x0FFFFFF7
+#define FAT_END_OF_CLUSTER  0x0FFFFFF8
+
+#define FAT_ATTR_READ_ONLY  0x01
+#define FAT_ATTR_HIDDEN     0x02
+#define FAT_ATTR_SYSTEM     0x04
+#define FAT_ATTR_VOLUME_ID  0x08
+#define FAT_ATTR_DIRECTORY  0x10
+#define FAT_ATTR_ARCHIVE    0x20
+#define FAT_ATTR_LONG_NAME  FAT_ATTR_READ_ONLY | \
+                            FAT_ATTR_HIDDEN | \
+                            FAT_ATTR_SYSTEM | \
+                            FAT_ATTR_VOLUME_ID
+
 
 static uint32_t CRC32_LOOKUP[256] = {
     0, 0x77073096, 0xEE0E612C, 0x990951BA,
@@ -147,7 +166,7 @@ void createGptPartitionTable(uint8_t* dest,
     struct GptHeader* gptHeader = (struct GptHeader*)dest;
     gptHeader->signature = EFI_PART_MAGIC;
     gptHeader->revision = GPT_HEADER_VERSION;
-    gptHeader->headerSize = sizeof(gptHeader);
+    gptHeader->headerSize = sizeof(struct GptHeader);
     gptHeader->headerCrc32 = 0;
     gptHeader->reserved = 0;
     gptHeader->myLba = lba;
@@ -227,8 +246,8 @@ uint32_t createGptPartitionArray(uint8_t* dest) {
 // ...      Data Region                 Data                         
 
 #define FAT_SECTOR_SIZE             512
-#define FAT_CLUSTER_SECTOR_COUNT    1
-#define FAT_CLUSTER_SIZE            (FAT_CLUSTER_SECTOR_COUNT * FAT_SECTOR_SIZE)
+#define FAT_SECTOR_PER_CLUSTER      1
+#define FAT_CLUSTER_SIZE            (FAT_SECTOR_PER_CLUSTER * FAT_SECTOR_SIZE)
 #define FAT_RESERVED_SECTOR_COUNT   3
 #define FAT_NUM_OF_FAT              2 // Primary and backup FAT
 #define FAT_TOTAL_SECTOR_COUNT      (FAT_SECTOR_SIZE * 2 + FAT_RESERVED_SECTOR_COUNT \
@@ -237,8 +256,6 @@ uint32_t createGptPartitionArray(uint8_t* dest) {
 #define FAT_ROOT_CLUSTER            2 // Relative to the data region
 
 #define FAT_EXTENDED_BOOT_SIGNATURE 0x29
-
-uint32_t firstDataSector;
 
 struct __attribute__((__packed__)) Fat32BootSector {
     uint8_t jmpBoot[3];
@@ -282,7 +299,7 @@ struct __attribute__((__packed__)) FatFileSystemInfo {
 };
 
 struct __attribute__((__packed__)) FatDirectoryEntry {
-    uint8_t name[11];
+    char name[FAT_DIR_NAME_SIZE];
     uint8_t attribute;
     uint8_t ntReserved;
     uint8_t creationTimeTenth;
@@ -296,8 +313,355 @@ struct __attribute__((__packed__)) FatDirectoryEntry {
     uint32_t fileSize;
 };
 
-uint32_t getDataSector(uint32_t dataCluster) {
-    return (dataCluster - 2) * FAT_CLUSTER_SECTOR_COUNT + firstDataSector;
+struct FatVolume {
+    struct Fat32BootSector* bootSector;
+    struct FatFileSystemInfo* fsInfo;
+    uint32_t* fat;
+    uint32_t dataClusterCount;
+    uint8_t* dataSector;
+};
+
+uint8_t* fatGetDataCluster(struct FatVolume* volume, uint32_t clusterNum) {
+    // TODO: check upper bounds
+    if (clusterNum < 2) {
+        printf("Invalid data cluster number '%u'\n", clusterNum);
+        return NULL;
+    }
+
+    const uint32_t CLUSTER_SIZE = FAT_SECTOR_SIZE * FAT_SECTOR_PER_CLUSTER;
+    return volume->dataSector + (clusterNum - 2) * CLUSTER_SIZE;
+}
+
+
+static uint8_t FAT_VALID_CHARS[256] = {
+//  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 1
+    1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, // 2
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, // 3
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 4
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, // 5
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 6
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, // 7
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 8
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 9
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // A
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // B
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // C
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // D
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // E
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // F
+};
+
+bool fatCreateDirectoryName(char name[], uint32_t size, char* destination) {
+    const uint32_t MAX_INPUT_SIZE = 12;
+    if (size > MAX_INPUT_SIZE) {
+        printf("Directory name '%s' is too long (> 12)\n", name);
+        return false;
+    }
+
+    // A directory name is only allowed to have at most an
+    // 8 byte name followed by an optional dot '.' and a 
+    // 3 byte long extension
+    int32_t separatorIndex = -1;
+    for (uint32_t i = 0; i < size; i++) {
+        if (name[i] == '.') {
+            if (separatorIndex > -1) {
+                printf("Found multiple '.' in file name\n");
+                return false;
+            }
+            separatorIndex = i;
+        }
+    }
+
+    if (separatorIndex == 0) {
+        printf("File name cannot start with '.' '%s'\n", name);
+        return false;
+    }
+
+    const uint32_t MAX_NAME_SIZE = 8;
+    const uint32_t MAX_EXT_SIZE = 3;
+
+    uint32_t nameSize = size;
+    uint32_t extSize = 0;
+    if (separatorIndex > -1) {
+        nameSize = size - (size - separatorIndex);
+        extSize = size - (separatorIndex + 1);
+    }
+
+    if (nameSize > MAX_NAME_SIZE) {
+        printf("File name too long '%s'\n", name);
+        return false;
+    }
+    if (extSize > MAX_EXT_SIZE) {
+        printf("File extension too long '%s'\n", name);
+        return false;
+    }
+
+    memset(destination, 0x20, FAT_DIR_NAME_SIZE);
+    uint32_t extensionSize = 0;
+
+    char* out = destination;
+    for (uint32_t i = 0; i < size; i++) {
+        uint8_t c = name[i];
+
+        if (c == '.') {
+            out = &destination[MAX_NAME_SIZE];
+            continue;
+        }
+
+        // To upper case
+        if (c >= 'a' && c <= 'z') {
+            c -= 32;
+        }
+
+        if (!FAT_VALID_CHARS[c]) {
+            printf("Invalid char '%c' in directory name '%s'\n", c, name);
+            return false;
+        }
+
+        *out = c;
+        out++;
+    }
+
+    return true;
+}
+
+bool fatDirNameEqual(char* a, char* b) {
+    for (uint32_t i = 0; i < FAT_DIR_NAME_SIZE; i++) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+struct FatDirectoryEntry* fatFindDirectory(struct FatVolume* volume, uint32_t startClusterIndex, char* dirName) {
+    const uint32_t MAX_DIR_PER_CLUSTER = 
+        (FAT_SECTOR_SIZE * FAT_SECTOR_PER_CLUSTER) / sizeof(struct FatDirectoryEntry);
+
+    uint32_t nextCluster = volume->fat[startClusterIndex];
+
+    uint32_t dirIndex = 0;
+    struct FatDirectoryEntry* dir = 
+        (struct FatDirectoryEntry*)fatGetDataCluster(volume, startClusterIndex);
+
+
+    while (dir->name[0] != 0) {
+        if (fatDirNameEqual(dir->name, dirName)) {
+            return dir;
+        }
+
+        if (dirIndex + 1 > MAX_DIR_PER_CLUSTER) {
+            if (nextCluster == FAT_END_OF_CLUSTER) {
+                break;
+            }
+
+            dirIndex = 0;
+            dir = (struct FatDirectoryEntry*)fatGetDataCluster(volume, nextCluster);
+            nextCluster = volume->fat[nextCluster];
+            continue;
+        }
+        dirIndex++;
+        dir++;
+    }
+
+    return NULL;
+}
+
+void fatFillDateTime(struct FatDirectoryEntry* dir) {
+    SYSTEMTIME time;
+    GetSystemTime(&time);
+
+    const uint32_t MS_DOS_EPOCH     = 1980;
+    const uint32_t DATE_MONTH_MASK  = 0b0000000111100000;
+    const uint32_t DATE_DAY_MASK    = 0b0000000000011111;
+
+    uint16_t msDosYear = (time.wYear - MS_DOS_EPOCH) << 9;
+    uint16_t msDosMonth = (time.wMonth << 5) & DATE_MONTH_MASK;
+    uint16_t msDosDay = time.wDay & DATE_DAY_MASK;
+    uint16_t msDosDate = msDosDay | msDosMonth | msDosYear;
+
+    const uint32_t TIME_MINUTE_MASK = 0b0000011111100000;
+    const uint32_t TIME_SECOND_MASK = 0b0000000000011111;
+
+    uint16_t msDosHour = time.wHour << 11;
+    uint16_t msDosMinute = (time.wMinute << 5) & TIME_MINUTE_MASK;
+    uint16_t msDosSecond = (time.wSecond / 2) & TIME_SECOND_MASK;
+    uint16_t msDosTime = msDosSecond | msDosMinute | msDosHour;
+
+    dir->creationTimeTenth = time.wSecond % 200;
+    dir->creationTime = msDosTime;
+    dir->creationDate = msDosDate;
+    dir->lastAccessDate = msDosDate;
+    dir->writeDate = msDosDate;
+    dir->writeTime = msDosTime;
+}
+
+uint32_t fatAllocateCluster(struct FatVolume* volume) {
+    uint32_t cluster = 0;
+    for (uint32_t i = 0; i < volume->dataClusterCount; i++) {
+        if (volume->fat[i] == 0) {
+            volume->fat[i] = FAT_END_OF_CLUSTER;
+            cluster = i;
+            break;
+        }
+    }
+
+    return cluster;
+}
+
+struct FatDirectoryEntry* fatAllocateDirectory(struct FatVolume* volume, uint32_t parentClusterNumber) {
+    uint32_t clusterIndex = parentClusterNumber;
+    uint32_t cluster = volume->fat[clusterIndex];
+    uint8_t* clusterData = fatGetDataCluster(volume, parentClusterNumber);
+
+    uint32_t entryIndex = 0;
+    struct FatDirectoryEntry* dir = (struct FatDirectoryEntry*)clusterData;
+
+    const uint32_t MAX_DIR_PER_CLUSTER = 
+        (FAT_SECTOR_SIZE * FAT_SECTOR_PER_CLUSTER) / sizeof(struct FatDirectoryEntry);
+
+    while (dir->name[0] != 0) {
+
+        if (entryIndex + 1 >= MAX_DIR_PER_CLUSTER) {
+            if (cluster == FAT_END_OF_CLUSTER) {
+                uint32_t nextCluster = fatAllocateCluster(volume);
+                volume->fat[clusterIndex] = nextCluster;
+                dir = (struct FatDirectoryEntry*)fatGetDataCluster(volume, nextCluster);
+                break; 
+            }
+
+            clusterIndex = cluster;
+            cluster = volume->fat[clusterIndex];
+            clusterData = fatGetDataCluster(volume, clusterIndex);
+            entryIndex = 0;
+            dir = (struct FatDirectoryEntry*)clusterData;
+            continue;
+        }
+
+        entryIndex++;
+        dir++;
+    }
+    
+
+    return dir;
+}
+
+#define MAX_SUB_DIRS        32
+#define MAX_PATH_SIZE       64
+#define MAX_DIR_NAME        13
+
+void fatCreateDirectory(struct FatVolume* volume, char* inputPath) {
+    char* path = inputPath;
+    uint32_t pathSize = strnlen_s(path, MAX_PATH_SIZE);
+
+    bool skipRootSlash = path[0] == '/';
+    if (skipRootSlash) {
+        pathSize--;
+        path++;
+    }
+
+#define KEY_FROM    0
+#define KEY_SIZE    1
+
+    uint32_t pathSpans[MAX_SUB_DIRS][2] = {};
+    uint32_t pathSpanCount = 1;
+
+    pathSpans[0][KEY_FROM] = 0;
+    pathSpans[0][KEY_SIZE] = 0;
+
+    for (uint32_t pathIndex = 0; pathIndex < pathSize; pathIndex++) {
+        uint32_t currentSpan = pathSpanCount - 1;
+        bool isLast = pathIndex + 1 == pathSize;
+    
+        if (path[pathIndex] == '/') {
+            if (pathSpanCount + 1 > MAX_SUB_DIRS) {
+                printf("Too many subdirectories in path '%s'\n", inputPath);
+                return;
+            }
+            pathSpans[currentSpan][KEY_SIZE] = pathIndex - pathSpans[currentSpan][KEY_FROM];
+
+            if (!isLast) {
+                pathSpans[pathSpanCount][KEY_FROM] = pathIndex + 1;
+                pathSpanCount++;
+            }
+        } else if (isLast) {
+            pathSpans[currentSpan][KEY_SIZE] = (pathIndex + 1) - pathSpans[currentSpan][KEY_FROM];
+        }
+    }
+
+    char pathElements[MAX_SUB_DIRS][MAX_DIR_NAME] = {};
+    uint32_t pathElementCount = 0;
+    for (uint32_t pathSpanIdx = 0; pathSpanIdx < pathSpanCount; pathSpanIdx++) {
+        uint32_t from = pathSpans[pathSpanIdx][KEY_FROM];
+        uint32_t size = pathSpans[pathSpanIdx][KEY_SIZE];
+        fatCreateDirectoryName(&path[from], size, pathElements[pathElementCount]);
+        pathElementCount++;
+    }
+
+#undef KEY_FROM
+#undef KEY_SIZE
+
+    uint32_t parentCluster = 2;
+    uint32_t cluster = volume->fat[parentCluster];
+
+    int32_t parentDirCount = pathElementCount - 1;
+    for (uint32_t dirIndex = 0; (int32_t)dirIndex < parentDirCount; dirIndex++) {
+        struct FatDirectoryEntry* entry = fatFindDirectory(volume, parentCluster, pathElements[dirIndex]);
+        if (!entry) {
+            printf("Directory '%*.s' does not exist in '%s'\n", 
+                    FAT_DIR_NAME_SIZE, pathElements[dirIndex], inputPath);
+        }
+
+        parentCluster = ((uint16_t)entry->firstClusterHigh << 16) | entry->firstClusterLow;
+    }
+    
+    char* newPathElement = pathElements[pathElementCount - 1];
+    struct FatDirectoryEntry* existingEntry = fatFindDirectory(volume, parentCluster, newPathElement);
+    if (existingEntry) {
+        printf("Directory '%*.s' already exists in path %s\n", FAT_DIR_NAME_SIZE, newPathElement, inputPath);
+        return;
+    }
+
+    struct FatDirectoryEntry* newDir = fatAllocateDirectory(volume, parentCluster);
+    newDir->attribute = FAT_ATTR_DIRECTORY;
+    memcpy(newDir->name, newPathElement, FAT_DIR_NAME_SIZE); 
+    fatFillDateTime(newDir);
+
+    uint32_t dirContentCluster = fatAllocateCluster(volume);
+    newDir->firstClusterHigh = dirContentCluster >> 16;
+    newDir->firstClusterLow = dirContentCluster & 0xFF;
+
+    uint8_t* contentCluster = fatGetDataCluster(volume, dirContentCluster);
+    struct FatDirectoryEntry* dotDir = (struct FatDirectoryEntry*)contentCluster;
+    struct FatDirectoryEntry* dotDotDir = (struct FatDirectoryEntry*)(contentCluster + sizeof(struct FatDirectoryEntry));
+
+    char dotDirName[FAT_DIR_NAME_SIZE] = ".          ";
+    char dotDotDirName[FAT_DIR_NAME_SIZE] = "..         ";
+
+    memcpy(dotDir->name, dotDirName, FAT_DIR_NAME_SIZE);
+    memcpy(dotDotDir->name, dotDotDirName, FAT_DIR_NAME_SIZE);
+
+    dotDir->attribute = FAT_ATTR_DIRECTORY;
+    dotDir->creationTimeTenth = newDir->creationTimeTenth;
+    dotDir->creationTime = newDir->creationTime;
+    dotDir->creationDate = newDir->creationDate;
+    dotDir->lastAccessDate = newDir->lastAccessDate;
+    dotDir->writeTime = newDir->writeTime;
+    dotDir->writeDate = newDir->writeDate;
+    dotDir->firstClusterHigh = newDir->firstClusterHigh;
+    dotDir->firstClusterLow = newDir->firstClusterLow;
+
+    dotDotDir->attribute = FAT_ATTR_DIRECTORY;
+    dotDotDir->creationTimeTenth = newDir->creationTimeTenth;
+    dotDotDir->creationTime = newDir->creationTime;
+    dotDotDir->creationDate = newDir->creationDate;
+    dotDotDir->lastAccessDate = newDir->lastAccessDate;
+    dotDotDir->writeTime = newDir->writeTime;
+    dotDotDir->writeDate = newDir->writeDate;
+    dotDotDir->firstClusterHigh = parentCluster >> 16;
+    dotDotDir->firstClusterLow = (uint8_t)parentCluster;
 }
 
 void createFat32(uint8_t* dest) {
@@ -313,8 +677,8 @@ void createFat32(uint8_t* dest) {
     // TODO: generate random volume id
     const uint32_t VOLUME_ID = 0x219EB6E0;
     const char VOLUME_LABEL[11] = {
-        'N', 'O', ' ', 'N', 'A', 'M', 'E',
-        ' ', ' ', ' ', ' ',
+        'S', 'P', 'I', 'E', 'L', 'Z', 'U',
+        'G', ' ', ' ', ' ',
     };
     const char FS_TYPE_FAT[sizeof(uint64_t)] = {
         'F', 'A', 'T', '3',
@@ -327,7 +691,7 @@ void createFat32(uint8_t* dest) {
     sector->jmpBoot[2] = 0x90; // nop
     sector->oemName = FAT32_OEM_NAME;
     sector->bytesPerSector = FAT_SECTOR_SIZE;
-    sector->sectorsPerCluster = FAT_CLUSTER_SECTOR_COUNT;
+    sector->sectorsPerCluster = FAT_SECTOR_PER_CLUSTER;
     sector->reservedSectorCount = FAT_RESERVED_SECTOR_COUNT;
     sector->numberOfFats = FAT_NUM_OF_FAT;
     sector->rootEntryCount = 0;
@@ -389,7 +753,7 @@ void createFat32(uint8_t* dest) {
 
     // Debug info
     uint32_t rootDirectorySectors = ((sector->rootEntryCount * 32) + (sector->bytesPerSector - 1)) / sector->bytesPerSector;
-    firstDataSector = sector->reservedSectorCount + (sector->numberOfFats * sector->fatSize32)
+    uint32_t firstDataSector = sector->reservedSectorCount + (sector->numberOfFats * sector->fatSize32)
                              + rootDirectorySectors;
 
     uint32_t fatSize = 0;
@@ -424,32 +788,28 @@ void createFat32(uint8_t* dest) {
     }
 
     // FAT Table
-#define FAT_ENTRY_MASK      0x0FFFFFFF
-#define FAT_BAD_CLUSTER     0x0FFFFFF7
-#define FAT_END_OF_CLUSTER  0x0FFFFFF8
-
     uint32_t* fat = (uint32_t*)(dest + FAT_RESERVED_SECTOR_COUNT * FAT_SECTOR_SIZE);
     fat[0] = (uint32_t)sector->media | 0x0FFFFF00;
     fat[1] = 0x0FFFFFFF;
     fat[2] = FAT_END_OF_CLUSTER; // Root Directory
     
-    // Root Directory
-#define FAT_ATTR_READ_ONLY  0x01
-#define FAT_ATTR_HIDDEN     0x02
-#define FAT_ATTR_SYSTEM     0x04
-#define FAT_ATTR_VOLUME_ID  0x08
-#define FAT_ATTR_DIRECTORY  0x10
-#define FAT_ATTR_ARCHIVE    0x20
-#define FAT_ATTR_LONG_NAME  FAT_ATTR_READ_ONLY | \
-                            FAT_ATTR_HIDDEN | \
-                            FAT_ATTR_SYSTEM | \
-                            FAT_ATTR_VOLUME_ID
+    uint8_t* rootDir = dest + firstDataSector * FAT_SECTOR_SIZE;
 
-    uint32_t rootSector = getDataSector(2);
-    struct FatDirectoryEntry* rootDir = (struct FatDirectoryEntry*)dest + rootSector * FAT_SECTOR_SIZE;
-    rootDir->attribute = FAT_ATTR_DIRECTORY;
-    rootDir->firstClusterHigh = 0;
-    rootDir->firstClusterLow = 3;
+    struct FatDirectoryEntry* volumeDir = (struct FatDirectoryEntry*)rootDir;
+    memcpy(volumeDir->name, VOLUME_LABEL, FAT_DIR_NAME_SIZE); 
+    volumeDir->attribute = FAT_ATTR_VOLUME_ID;
+    fatFillDateTime(volumeDir);
+
+    struct FatVolume volume = {
+        .bootSector = sector,
+        .fsInfo = fsInfo,
+        .fat = fat,
+        .dataSector = (uint8_t*)rootDir,
+        .dataClusterCount = countOfClusters,
+    };
+
+    fatCreateDirectory(&volume, "EFI");
+    fatCreateDirectory(&volume, "/EFI/BOOT/");
 }
 
 uint32_t createGpt(uint8_t* image) {
@@ -496,7 +856,7 @@ uint32_t createGpt(uint8_t* image) {
     // Set to LBA of GPT partition header
     partRecord->startingLba = 1;
     // Size of disk minus one
-    partRecord->sizeInLba = IMAGE_SIZE - 1;
+    partRecord->sizeInLba = LBA_ALTERNATE_GPT;
 
     uint16_t* mbrSignature = (uint16_t*)&image[MBR_SIGNATURE_OFFSET];
     *mbrSignature = MBR_SIGNATURE;

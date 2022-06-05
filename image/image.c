@@ -552,7 +552,14 @@ struct FatDirectoryEntry* fatAllocateDirectory(struct FatVolume* volume, uint32_
 #define MAX_PATH_SIZE       64
 #define MAX_DIR_NAME        13
 
-void fatCreateDirectory(struct FatVolume* volume, char* inputPath) {
+void changeToLastDir(
+    struct FatVolume* volume, 
+    char* inputPath, 
+    char pathElements[MAX_SUB_DIRS][FAT_DIR_NAME_SIZE],
+    uint32_t* pathElementCount,
+    uint32_t* parentClusterIndex
+) {
+    *pathElementCount = 0;
     char* path = inputPath;
     uint32_t pathSize = strnlen_s(path, MAX_PATH_SIZE);
 
@@ -591,40 +598,46 @@ void fatCreateDirectory(struct FatVolume* volume, char* inputPath) {
         }
     }
 
-    char pathElements[MAX_SUB_DIRS][MAX_DIR_NAME] = {};
-    uint32_t pathElementCount = 0;
     for (uint32_t pathSpanIdx = 0; pathSpanIdx < pathSpanCount; pathSpanIdx++) {
         uint32_t from = pathSpans[pathSpanIdx][KEY_FROM];
         uint32_t size = pathSpans[pathSpanIdx][KEY_SIZE];
-        fatCreateDirectoryName(&path[from], size, pathElements[pathElementCount]);
-        pathElementCount++;
+        fatCreateDirectoryName(&path[from], size, pathElements[*pathElementCount]);
+        *pathElementCount += 1;
     }
 
 #undef KEY_FROM
 #undef KEY_SIZE
 
-    uint32_t parentCluster = 2;
-    uint32_t cluster = volume->fat[parentCluster];
+    *parentClusterIndex = 2;
+    uint32_t cluster = volume->fat[*parentClusterIndex];
 
-    int32_t parentDirCount = pathElementCount - 1;
+    int32_t parentDirCount = *pathElementCount - 1;
     for (uint32_t dirIndex = 0; (int32_t)dirIndex < parentDirCount; dirIndex++) {
-        struct FatDirectoryEntry* entry = fatFindDirectory(volume, parentCluster, pathElements[dirIndex]);
+        struct FatDirectoryEntry* entry = fatFindDirectory(volume, *parentClusterIndex, pathElements[dirIndex]);
         if (!entry) {
             printf("Directory '%*.s' does not exist in '%s'\n", 
                     FAT_DIR_NAME_SIZE, pathElements[dirIndex], inputPath);
         }
 
-        parentCluster = ((uint16_t)entry->firstClusterHigh << 16) | entry->firstClusterLow;
+        *parentClusterIndex = ((uint16_t)entry->firstClusterHigh << 16) | entry->firstClusterLow;
     }
+}
+
+void fatCreateDirectory(struct FatVolume* volume, char* inputPath) {
+
+    char pathElements[MAX_SUB_DIRS][FAT_DIR_NAME_SIZE] = {};
+    uint32_t parentClusterIndex = 0;
+    uint32_t pathElementCount = 0;
+    changeToLastDir(volume, inputPath, pathElements, &pathElementCount, &parentClusterIndex);
     
     char* newPathElement = pathElements[pathElementCount - 1];
-    struct FatDirectoryEntry* existingEntry = fatFindDirectory(volume, parentCluster, newPathElement);
+    struct FatDirectoryEntry* existingEntry = fatFindDirectory(volume, parentClusterIndex, newPathElement);
     if (existingEntry) {
         printf("Directory '%*.s' already exists in path %s\n", FAT_DIR_NAME_SIZE, newPathElement, inputPath);
         return;
     }
 
-    struct FatDirectoryEntry* newDir = fatAllocateDirectory(volume, parentCluster);
+    struct FatDirectoryEntry* newDir = fatAllocateDirectory(volume, parentClusterIndex);
     newDir->attribute = FAT_ATTR_DIRECTORY;
     memcpy(newDir->name, newPathElement, FAT_DIR_NAME_SIZE); 
     fatFillDateTime(newDir);
@@ -660,8 +673,54 @@ void fatCreateDirectory(struct FatVolume* volume, char* inputPath) {
     dotDotDir->lastAccessDate = newDir->lastAccessDate;
     dotDotDir->writeTime = newDir->writeTime;
     dotDotDir->writeDate = newDir->writeDate;
-    dotDotDir->firstClusterHigh = parentCluster >> 16;
-    dotDotDir->firstClusterLow = (uint8_t)parentCluster;
+    dotDotDir->firstClusterHigh = parentClusterIndex >> 16;
+    dotDotDir->firstClusterLow = (uint8_t)parentClusterIndex;
+}
+
+void fatCreateFile(struct FatVolume* volume, uint8_t* fileBuffer, uint32_t fileSize, char* path) {
+    char pathElements[MAX_SUB_DIRS][FAT_DIR_NAME_SIZE] = {};
+    uint32_t parentClusterIndex = 0;
+    uint32_t pathElementCount = 0;
+    changeToLastDir(volume, path, pathElements, &pathElementCount, &parentClusterIndex);
+
+    char* newPathElement = pathElements[pathElementCount - 1];
+    struct FatDirectoryEntry* existingEntry = fatFindDirectory(volume, parentClusterIndex, newPathElement);
+    if (existingEntry) {
+        printf("File '%*.s' already exists in path %s\n", FAT_DIR_NAME_SIZE, newPathElement, path);
+        return;
+    }
+
+    struct FatDirectoryEntry* newDir = fatAllocateDirectory(volume, parentClusterIndex);
+    newDir->fileSize = fileSize;
+    memcpy(newDir->name, newPathElement, FAT_DIR_NAME_SIZE); 
+    fatFillDateTime(newDir);
+
+    uint32_t firstClusterIndex = fatAllocateCluster(volume);
+    uint8_t* firstClusterData = fatGetDataCluster(volume, firstClusterIndex);
+    memcpy(firstClusterData, fileBuffer, FAT_CLUSTER_SIZE);
+    newDir->firstClusterLow = firstClusterIndex;
+    newDir->firstClusterHigh = firstClusterIndex >> 16;
+
+    uint8_t* fileSource = fileBuffer + FAT_CLUSTER_SIZE;
+    uint32_t clusterCount = (fileSize / FAT_CLUSTER_SIZE) + ((fileSize % FAT_CLUSTER_SIZE) > 0);
+    uint32_t lastClusterIndex = firstClusterIndex;
+    for (uint32_t i = 0; (int32_t)i < (int32_t)(clusterCount - 1); i++) {
+        uint32_t clusterIndex = fatAllocateCluster(volume);
+        uint8_t* clusterData = fatGetDataCluster(volume, clusterIndex);
+        uint32_t copySize = FAT_CLUSTER_SIZE;
+
+        bool isLastCluster = i + 1 == clusterCount;
+        if (isLastCluster) {
+            copySize = (fileBuffer + fileSize) - fileSource;
+            volume->fat[lastClusterIndex] = FAT_END_OF_CLUSTER;
+        } else {
+            volume->fat[lastClusterIndex] = clusterIndex;
+        }
+
+        memcpy(clusterData, fileSource, copySize);
+        fileSource += copySize;
+        lastClusterIndex = clusterIndex;
+    }
 }
 
 void createFat32(uint8_t* dest) {
@@ -810,6 +869,39 @@ void createFat32(uint8_t* dest) {
 
     fatCreateDirectory(&volume, "EFI");
     fatCreateDirectory(&volume, "/EFI/BOOT/");
+
+    HANDLE efiFile = CreateFileW(
+        L"../bin/BOOTX64.EFI",
+        GENERIC_READ | GENERIC_WRITE,
+        0,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+
+    uint32_t efiFileSize = GetFileSize(efiFile, NULL);
+
+    uint8_t* efiFileBuffer = VirtualAllocEx(
+        GetCurrentProcess(),
+        NULL,
+        efiFileSize,
+        MEM_COMMIT,
+        PAGE_READWRITE
+    );
+
+    BOOL readRes = ReadFile(
+        efiFile,
+        efiFileBuffer,
+        efiFileSize,
+        NULL,
+        NULL
+    );
+
+    fatCreateFile(&volume, efiFileBuffer, efiFileSize, "/EFI/BOOT/BOOTX64.EFI");
+
+    VirtualFree(efiFileBuffer, 0, MEM_RELEASE);
+    CloseHandle(efiFile);
 }
 
 uint32_t createGpt(uint8_t* image) {

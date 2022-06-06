@@ -871,7 +871,7 @@ void createFat32(uint8_t* dest) {
     fatCreateDirectory(&volume, "/EFI/BOOT/");
 
     HANDLE efiFile = CreateFileW(
-        L"../bin/BOOTX64.EFI",
+        L"BOOTX64.EFI",
         GENERIC_READ | GENERIC_WRITE,
         0,
         NULL,

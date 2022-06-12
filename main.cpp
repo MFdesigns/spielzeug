@@ -11,7 +11,7 @@ EFI_STATUS efi_main(EFI_HANDLE imageHandle, EFI_SYSTEM_TABLE* systemTable) {
     uint64_t descriptorSize = 0;
     uint32_t descriptorVersion = 0;
 
-    systemTable->efiBootServices->getMemoryMap(&memMapSize, memoryMap, &mapKey, &descriptorSize, &descriptorVersion);
+    // systemTable->efiBootServices->getMemoryMap(&memMapSize, memoryMap, &mapKey, &descriptorSize, &descriptorVersion);
     
     while(true) {};
     return EFI_SUCCESS;

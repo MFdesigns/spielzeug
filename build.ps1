@@ -1,10 +1,10 @@
-clang++ `
+clang `
     -target x86_64-unknown-windows `
     -ffreestanding `
     -mno-red-zone `
-    -c -o "./bin/main.o" "main.cpp"
+    -c -o "./bin/main.o" "./src/efi_main.c"
 
-clang++ `
+clang `
     -target x86_64-unknown-windows `
     -nostdlib `
     "-Wl,-entry:efi_main" `

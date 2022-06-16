@@ -119,6 +119,222 @@ typedef EFI_STATUS (*EFI_GET_MEMORY_MAP) (u64 *MemoryMapSize, struct EFI_MEMORY_
 typedef EFI_STATUS (*EFI_ALLOCATE_POOL) (enum EFI_MEMORY_TYPE PoolType, u64 Size, void** Buffer);
 typedef EFI_STATUS (*EFI_FREE_POOL) (void* Buffer);
 
+typedef void* EFI_EVENT;
+
+typedef void (*EFI_EVENT_NOTIFY) (EFI_EVENT Event, void* Context);
+typedef EFI_STATUS (*EFI_CREATE_EVENT) (u32 Type, EFI_TPL NotifyTpl, EFI_EVENT_NOTIFY NotifyFunction, void* NotifyContext, EFI_EVENT *Event); 
+
+enum EFI_TIMER_DELAY {
+    TimerCancel,
+    TimerPeriodic,
+    TimerRelative
+};
+
+typedef EFI_STATUS (*EFI_SET_TIMER) (EFI_EVENT Event, enum EFI_TIMER_DELAY Type, u64 TriggerTime);
+typedef EFI_STATUS (*EFI_WAIT_FOR_EVENT) (u64 NumberOfEvents, EFI_EVENT *Event, u64 *Index);
+typedef EFI_STATUS (*EFI_SIGNAL_EVENT) (EFI_EVENT Event);
+typedef EFI_STATUS (*EFI_CLOSE_EVENT) (EFI_EVENT Event);
+typedef EFI_STATUS (*EFI_CHECK_EVENT) (EFI_EVENT Event);
+
+struct EFI_GUID {
+    u32 Data1;
+    u16 Data2;
+    u16 Data3;
+    u8  Data4[8];
+};
+
+enum EFI_INTERFACE_TYPE {
+    EFI_NATIVE_INTERFACE
+};
+
+typedef EFI_STATUS (*EFI_INSTALL_PROTOCOL_INTERFACE) (
+    void*                   Handle, 
+    struct EFI_GUID*        Protocol, 
+    enum EFI_INTERFACE_TYPE InterfaceType, 
+    void*                   Interface
+);
+typedef EFI_STATUS (*EFI_REINSTALL_PROTOCOL_INTERFACE) (
+    void*               Handle,
+    struct EFI_GUID*    Protocol,
+    void*               OldInterface,
+    void*               NewInterface
+);
+typedef EFI_STATUS (*EFI_UNINSTALL_PROTOCOL_INTERFACE) (
+    void*               Handle,
+    struct EFI_GUID*    Protocol,
+    void*               Interface
+);
+typedef EFI_STATUS (*EFI_HANDLE_PROTOCOL) (
+    void*               Handle,
+    struct EFI_GUID*    Protocol,
+    void**              Interface
+);
+typedef EFI_STATUS (*EFI_REGISTER_PROTOCOL_NOTIFY) (
+    struct EFI_GUID*    Protocol,
+    EFI_EVENT           Event,
+    void**              Registration
+);
+
+enum EFI_LOCATE_SEARCH_TYPE {
+    AllHandles,
+    ByRegisterNotify,
+    ByProtocol
+};
+
+typedef EFI_STATUS (*EFI_LOCATE_HANDLE) (
+    enum EFI_LOCATE_SEARCH_TYPE SearchType,
+    struct EFI_GUID*            Protocol,
+    void*                       SearchKey,
+    u64*                        BufferSize,
+    void**                      Buffer
+);
+
+struct EFI_DEVICE_PATH_PROTOCOL {
+    u8 Type;
+    u8 SubType;
+    u8 Length[2];
+};
+
+typedef EFI_STATUS (*EFI_LOCATE_DEVICE_PATH) (
+    struct EFI_GUID*                    Protocol,
+    struct EFI_DEVICE_PATH_PROTOCOL**   DevicePath,
+    void**                              Device
+);
+typedef EFI_STATUS (*EFI_INSTALL_CONFIGURATION_TABLE) (
+    struct EFI_GUID*    Guid,
+    void*               Table
+);
+
+typedef EFI_STATUS (*EFI_IMAGE_LOAD) (
+    bool                                BootPolicy,
+    void*                               ParentImageHandle,
+    struct EFI_DEVICE_PATH_PROTOCOL*    DevicePath,
+    void*                               SourceBuffer,
+    u64                                 SourceSize,
+    void**                              ImageHandle
+);
+typedef EFI_STATUS (*EFI_IMAGE_START) (
+    void*       ImageHandle,
+    u64*        ExitDataSize,
+    char16**    ExitData
+);
+typedef EFI_STATUS (*EFI_EXIT) (
+    void*       ImageHandle,
+    EFI_STATUS  ExitStatus,
+    u64         ExitDataSize,
+    char16*     ExitData
+);
+typedef EFI_STATUS (*EFI_IMAGE_UNLOAD) (
+    void* ImageHandle
+);
+typedef EFI_STATUS (*EFI_EXIT_BOOT_SERVICES) (
+    void*   ImageHandle,
+    u64     MapKey
+);
+
+typedef EFI_STATUS (*EFI_GET_NEXT_MONOTONIC_COUNT) (
+    u64* Count
+);
+typedef EFI_STATUS (*EFI_STALL) (
+    u64 Microseconds
+);
+typedef EFI_STATUS (*EFI_SET_WATCHDOG_TIMER) (
+    u64     Timeout,
+    u64     WatchdogCode,
+    u64     DataSize,
+    char16* WatchdogData
+);
+typedef EFI_STATUS (*EFI_CONNECT_CONTROLLER) (
+    void*                            ControllerHandle,
+    void**                           DriverImageHandle,
+    struct EFI_DEVICE_PATH_PROTOCOL* RemainingDevicePath,
+    bool                             Recursive
+);
+typedef EFI_STATUS (*EFI_DISCONNECT_CONTROLLER) (
+    void* ControllerHandle,
+    void* DriverImageHandle,
+    void* ChildHandle
+);
+
+typedef EFI_STATUS (*EFI_OPEN_PROTOCOL) (
+    void*            Handle,
+    struct EFI_GUID* Protocol,
+    void**           Interface,
+    void*            AgentHandle,
+    void*            ControllerHandle,
+    u32              Attributes
+);
+typedef EFI_STATUS (*EFI_CLOSE_PROTOCOL) (
+    void*            Handle,
+    struct EFI_GUID* Protocol,
+    void*            AgentHandle,
+    void*            ControllerHandle
+);
+
+struct EFI_OPEN_PROTOCOL_INFORMATION_ENTRY {
+    void* AgentHandle;
+    void* ControllerHandle;
+    u32   Attributes;
+    u32   OpenCount;
+};
+
+typedef EFI_STATUS (*EFI_OPEN_PROTOCOL_INFORMATION) (
+    void*                                        Handle,
+    struct EFI_GUID*                             Protocol,
+    struct EFI_OPEN_PROTOCOL_INFORMATION_ENTRY** EntryBuffer,
+    u64*                                         EntryCount
+);
+
+typedef EFI_STATUS (*EFI_PROTOCOLS_PER_HANDLE) (
+    void*              Handle,
+    struct EFI_GUID*** ProtocolBuffer,
+    u64*               ProtocolBufferCount
+);
+typedef EFI_STATUS (*EFI_LOCATE_HANDLE_BUFFER) (
+    enum EFI_LOCATE_SEARCH_TYPE SearchType,
+    struct EFI_GUID*            Protocol,
+    void*                       SearchKey,
+    u64*                        NoHandles,
+    void***                     Buffer
+);
+typedef EFI_STATUS (*EFI_LOCATE_PROTOCOL) (
+    struct EFI_GUID* Protocol,
+    void*            Registration,
+    void**           Interface
+);
+typedef EFI_STATUS (*EFI_INSTALL_MULTIPLE_PROTOCOL_INTERFACES) (
+    void** Handle,
+    ...
+);
+typedef EFI_STATUS (*EFI_UNINSTALL_MULTIPLE_PROTOCOL_INTERFACES) (
+    void* Handle,
+    ...
+);
+
+typedef EFI_STATUS (*EFI_CALCULATE_CRC32) (
+    void* Data,
+    u64   DataSize,
+    u32*  Crc32
+);
+typedef void (*EFI_COPY_MEM) (
+    void* Destination,
+    void* Source,
+    u64   Length
+);
+typedef void (*EFI_SET_MEM) (
+    void* Buffer,
+    u64   Size,
+    u8    Value
+);
+typedef EFI_STATUS (*EFI_CREATE_EVENT_EX) (
+    u32                    Type,
+    EFI_TPL                NotifyTpl,
+    EFI_EVENT_NOTIFY       NotifyFunction,
+    const void*            NotifyContext,
+    const struct EFI_GUID* EventGroup,
+    EFI_EVENT*             Event
+);
+
 struct EFI_BOOT_SERVICES {
     struct EFI_TABLE_HEADER Hdr;
     //
@@ -134,7 +350,6 @@ struct EFI_BOOT_SERVICES {
     EFI_GET_MEMORY_MAP GetMemoryMap; // EFI 1.0+
     EFI_ALLOCATE_POOL AllocatePool; // EFI 1.0+
     EFI_FREE_POOL FreePool; // EFI 1.0+
-#if 0
     //
     // Event & Timer Services
     //
@@ -151,7 +366,7 @@ struct EFI_BOOT_SERVICES {
     EFI_REINSTALL_PROTOCOL_INTERFACE ReinstallProtocolInterface; // EFI 1.0+
     EFI_UNINSTALL_PROTOCOL_INTERFACE UninstallProtocolInterface; // EFI 1.0+
     EFI_HANDLE_PROTOCOL HandleProtocol; // EFI 1.0+
-    VOID* Reserved; // EFI 1.0+
+    void* Reserved; // EFI 1.0+
     EFI_REGISTER_PROTOCOL_NOTIFY RegisterProtocolNotify; // EFI 1.0+
     EFI_LOCATE_HANDLE LocateHandle; // EFI 1.0+
     EFI_LOCATE_DEVICE_PATH LocateDevicePath; // EFI 1.0+
@@ -201,7 +416,6 @@ struct EFI_BOOT_SERVICES {
     EFI_COPY_MEM CopyMem; // EFI 1.1+
     EFI_SET_MEM SetMem; // EFI 1.1+
     EFI_CREATE_EVENT_EX CreateEventEx; // UEFI 2.0+
-#endif
 };
 
 // TODO: implement me

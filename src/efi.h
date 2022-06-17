@@ -440,3 +440,89 @@ struct EFI_SYSTEM_TABLE {
 };
 
 typedef EFI_STATUS (*EFI_IMAGE_ENTRY_POINT) (void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable);
+
+#define EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID \
+    {0x9042a9de, 0x23dc, 0x4a38,\
+    {0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a}}
+
+enum EFI_GRAPHICS_PIXEL_FORMAT {
+    PixelRedGreenBlueReserved8BitPerColor,
+    PixelBlueGreenRedReserved8BitPerColor,
+    PixelBitMask,
+    PixelBltOnly,
+    PixelFormatMax
+};
+
+struct EFI_GRAPHICS_OUTPUT_PROTOCOL;
+
+struct EFI_PIXEL_BITMASK {
+    u32 RedMask;
+    u32 GreenMask;
+    u32 BlueMask;
+    u32 ReservedMask;
+};
+
+struct EFI_GRAPHICS_OUTPUT_MODE_INFORMATION {
+    u32                            Version;
+    u32                            HorizontalResolution;
+    u32                            VerticalResolution;
+    enum EFI_GRAPHICS_PIXEL_FORMAT PixelFormat;
+    struct EFI_PIXEL_BITMASK       PixelInformation;
+    u32                            PixelsPerScanLine;
+};
+
+typedef EFI_STATUS (*EFI_GRAPHICS_OUTPUT_PROTOCOL_QUERY_MODE) (
+    struct EFI_GRAPHICS_OUTPUT_PROTOCOL*          This,
+    u32                                           ModeNumber,
+    u64*                                          SizeOfInfo,
+    struct EFI_GRAPHICS_OUTPUT_MODE_INFORMATION** Info
+);
+
+typedef EFI_STATUS (*EFI_GRAPHICS_OUTPUT_PROTOCOL_SET_MODE) (
+    struct EFI_GRAPHICS_OUTPUT_PROTOCOL* This,
+    u32                                  ModeNumber
+);
+
+struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL {
+    u8 Blue;
+    u8 Green;
+    u8 Red;
+    u8 Reserved;
+};
+
+enum EFI_GRAPHICS_OUTPUT_BLT_OPERATION {
+    EfiBltVideoFill,
+    EfiBltVideoToBltBuffer,
+    EfiBltBufferToVideo,
+    EfiBltVideoToVideo,
+    EfiGraphicsOutputBltOperationMax
+};
+
+typedef EFI_STATUS (*EFI_GRAPHICS_OUTPUT_PROTOCOL_BLT) (
+    struct EFI_GRAPHICS_OUTPUT_PROTOCOL*   This,
+    struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL*  BltBuffer,
+    enum EFI_GRAPHICS_OUTPUT_BLT_OPERATION BltOperation,
+    u64                                    SourceX,
+    u64                                    SourceY,
+    u64                                    DestinationX,
+    u64                                    DestinationY,
+    u64                                    Width,
+    u64                                    Height,
+    u64                                    Delta
+);
+
+struct EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE {
+    u32 MaxMode;
+    u32 Mode;
+    struct EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* Info;
+    u64 SizeOfInfo;
+    EFI_PHYSICAL_ADDRESS FrameBufferBase;
+    u64 FrameBufferSize;
+};
+
+struct EFI_GRAPHICS_OUTPUT_PROTOCOL {
+    EFI_GRAPHICS_OUTPUT_PROTOCOL_QUERY_MODE   QueryMode;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL_SET_MODE     SetMode;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL_BLT          Blt;
+    struct EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE* Mode;
+};

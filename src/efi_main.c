@@ -34,6 +34,114 @@ EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
     SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
     SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
 
+    // Graphics stuff
+
+    struct EFI_GUID graphicsProtocolGuid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
+    struct EFI_GRAPHICS_OUTPUT_PROTOCOL* graphicsInterface = 0;
+    EFI_STATUS res = bootServices->LocateProtocol(
+        &graphicsProtocolGuid,
+        0,
+        (void**)&graphicsInterface
+    );
+
+    if (res != EFI_SUCCESS) {
+        SystemTable->ConOut->OutputString(SystemTable->ConOut, u"ERROR: could not get protocol interface for GraphicsOutput\r\n");
+    }
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Max Mode ");
+    uintToString(buffer, (u64)graphicsInterface->Mode->MaxMode);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+    
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Mode ");
+    uintToString(buffer, (u64)graphicsInterface->Mode->Mode);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Size of Info ");
+    uintToHexString(buffer, (u64)graphicsInterface->Mode->SizeOfInfo);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Frame Buffer Base 0x");
+    uintToHexString(buffer, (u64)graphicsInterface->Mode->FrameBufferBase);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Frame Buffer Size ");
+    uintToString(buffer, graphicsInterface->Mode->FrameBufferSize);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Horizontal Resolution ");
+    uintToString(buffer, graphicsInterface->Mode->Info->HorizontalResolution);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Vertical Resolution ");
+    uintToString(buffer, graphicsInterface->Mode->Info->VerticalResolution);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Pixel Format 0x");
+    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelFormat);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Pixel Information\r\n");
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"R 0x");
+    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelInformation.RedMask);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u" G 0x");
+    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelInformation.GreenMask);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u" B 0x");
+    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelInformation.BlueMask);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u" RESERVED 0x");
+    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelInformation.ReservedMask);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Pixels per Scanline ");
+    uintToString(buffer, graphicsInterface->Mode->Info->PixelsPerScanLine);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+
+    if (graphicsInterface->Mode->Info->PixelFormat != PixelBlueGreenRedReserved8BitPerColor) {
+        SystemTable->ConOut->OutputString(SystemTable->ConOut, u"ERROR: unsupported pixel format\r\n");
+    }
+
+    s64 timer = 0;
+    s64 direction = 1;
+
+    while (true) {
+        timer += direction;
+        if (timer >= 255) {
+            direction = -1;
+        } else if (timer <= 0) {
+            direction = 1;
+        }
+
+        struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL pixel = {
+            .Blue = (u8)(timer),
+            .Green = 0,
+            .Red = 0,
+            .Reserved = 0,
+        };
+
+        graphicsInterface->Blt(
+            graphicsInterface,
+            &pixel,
+            EfiBltVideoFill,
+            0, 0,
+            0, 0,
+            graphicsInterface->Mode->Info->HorizontalResolution,
+            graphicsInterface->Mode->Info->VerticalResolution,
+            0
+        );
+    }
+
 #if 0
     // Memory map
     u32 pageCount = 2;

@@ -1,8 +1,57 @@
 #include "types.h"
 #include "efi.h"
 #include "print.h"
+#include "bmp_font.h"
 
 #define PAGE_SIZE 4096
+
+struct Terminal {
+    u32 screenWidth;
+    u32 screenHeight;
+    struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL* frameBuffer;
+    struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL* font;
+    u32 cursorX;
+    u32 cursorY;
+    u32 rowCount;
+    u32 columnCount;
+};
+
+u32 counter = 0;
+
+void putChar(struct Terminal* term, char c) {
+    u32 glyphIndex = CHAR_MAP[c];
+    u32 glyphSize = CHAR_WIDTH * CHAR_HEIGHT;
+    u8* glyph = &CHAR_BMP[glyphIndex * glyphSize];
+
+    u32 originX = term->cursorX * CHAR_WIDTH;
+    u32 originY = term->cursorY * CHAR_HEIGHT;
+    struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL* origin = 
+        &term->frameBuffer[originY * term->screenWidth + originX];
+    for (u32 i = 0; i < glyphSize; i++) {
+        u8 color = glyph[i];
+        if (color > 0) {
+            color = counter % 255;
+        }
+
+        u32 x = i % CHAR_WIDTH;
+        u32 y = i / CHAR_WIDTH;
+        struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL* pixel = &origin[y * term->screenWidth + x];
+        pixel->Red = 0;
+        pixel->Green = color;
+        pixel->Blue = 0;
+        pixel->Reserved = 0;
+    }
+
+    term->cursorX++;
+    if (term->cursorX >= term->columnCount) {
+        term->cursorX = 0;
+        term->cursorY++;
+    }
+
+    if (term->cursorY >= term->rowCount) {
+        term->cursorY = 0;
+    }
+}
 
 EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
     struct EFI_BOOT_SERVICES* bootServices = SystemTable->BootServices;
@@ -112,35 +161,62 @@ EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
         SystemTable->ConOut->OutputString(SystemTable->ConOut, u"ERROR: unsupported pixel format\r\n");
     }
 
-    s64 timer = 0;
-    s64 direction = 1;
+    u32 pageCount = (CHAR_COUNT * CHAR_WIDTH * CHAR_HEIGHT * 4) / PAGE_SIZE + 1;
+    EFI_PHYSICAL_ADDRESS glyphBuffer;
+    EFI_STATUS allocRes = bootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, pageCount, &glyphBuffer); 
+    if (allocRes != EFI_SUCCESS) {
+        SystemTable->ConOut->OutputString(SystemTable->ConOut, (char16*)u"ERROR: could not allocate pages\r\n");
+    }
+
+    u32 screenWidth = graphicsInterface->Mode->Info->HorizontalResolution;
+    u32 screenHeight = graphicsInterface->Mode->Info->VerticalResolution;
+
+    struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL* glyphTexture = 
+        (struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL*)glyphBuffer;
+
+    struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL* frameBuffer = 
+        (struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL*)graphicsInterface->Mode->FrameBufferBase;
+
+    for (u32 i = 0; i < CHAR_WIDTH * CHAR_HEIGHT * CHAR_COUNT; i++) {
+        u32 bmp = CHAR_BMP[i];
+
+        struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL* pixel = &glyphTexture[i];
+        pixel->Red = bmp;
+        pixel->Green = bmp;
+        pixel->Blue = bmp;
+        pixel->Reserved = 0;
+    }
+
+    struct Terminal term = {
+        .screenWidth = screenWidth,
+        .screenHeight = screenHeight,
+        .frameBuffer = frameBuffer,
+        .font = glyphTexture,
+        .cursorX = 0,
+        .cursorY = 0,
+        .rowCount = screenHeight / CHAR_HEIGHT,
+        .columnCount = screenWidth / CHAR_WIDTH,
+    };
 
     while (true) {
-        timer += direction;
-        if (timer >= 255) {
-            direction = -1;
-        } else if (timer <= 0) {
-            direction = 1;
-        }
-
-        struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL pixel = {
-            .Blue = (u8)(timer),
-            .Green = 0,
-            .Red = 0,
-            .Reserved = 0,
-        };
-
-        graphicsInterface->Blt(
-            graphicsInterface,
-            &pixel,
-            EfiBltVideoFill,
-            0, 0,
-            0, 0,
-            graphicsInterface->Mode->Info->HorizontalResolution,
-            graphicsInterface->Mode->Info->VerticalResolution,
-            0
-        );
+        char c = (counter % 10) + '0';
+        putChar(&term, c);
+        counter++;
     }
+
+#if 0
+    putChar(&term, '0');
+    putChar(&term, '1');
+    putChar(&term, '2');
+    putChar(&term, '3');
+    putChar(&term, '4');
+    putChar(&term, '5');
+    putChar(&term, '6');
+    putChar(&term, '7');
+    putChar(&term, '8');
+    putChar(&term, '9');
+    putChar(&term, '!');
+#endif
 
 #if 0
     // Memory map

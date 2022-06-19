@@ -1,3 +1,5 @@
+#define UNICODE
+
 #include "image.h"
 #include "fat.h"
 #include "gpt.h"
@@ -47,7 +49,38 @@ void LpoverlappedCompletionRoutine(
     printf("Completed\n");
 }
 
-int main() {
+void toChar16(char* string, char16_t* out) {
+    uint32_t strSize = strlen(string);
+    for (uint32_t i = 0; i < strSize; i++) {
+        out[i] = string[i];
+    }
+}
+
+int main(int32_t argc, char** argv) {
+    if (argc < 2) {
+        printf("usage: <working directory>");
+        return 1;
+    }
+
+    // TODO: not very safe...
+    uint32_t workingDirSize = strlen(argv[1]);
+    char16_t workingDir[64] = {};
+    toChar16(argv[1], workingDir);
+
+    char16_t efiAppPath[64] = {};
+    char16_t efiFileName[] = u"BOOTX64.EFI";
+    char16_t efiFileNameSize = wcslen(efiFileName) * sizeof(char16_t);
+
+    memcpy(efiAppPath, workingDir, workingDirSize * sizeof(char16_t));
+    memcpy(&efiAppPath[workingDirSize], efiFileName, efiFileNameSize);
+
+    char16_t isoFilePath[64] = {};
+    char16_t isoFileName[] = u"spielzeug.iso";
+    char16_t isoFileNameSize = wcslen(isoFileName) * sizeof(char16_t);
+
+    memcpy(isoFilePath, workingDir, workingDirSize * sizeof(char16_t));
+    memcpy(&isoFilePath[workingDirSize], isoFileName, isoFileNameSize);
+
     HANDLE handle = GetCurrentProcess();
     uint8_t* image = (uint8_t*)VirtualAllocEx(handle, NULL, IMAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
     if (!image) {
@@ -82,7 +115,7 @@ int main() {
     fatCreateDirectory(&fatVolume, "/EFI/BOOT/");
 
     HANDLE efiFile = CreateFileW(
-        L"BOOTX64.EFI",
+        efiAppPath,
         GENERIC_READ | GENERIC_WRITE,
         0,
         NULL,
@@ -115,7 +148,7 @@ int main() {
     CloseHandle(efiFile);
 
     HANDLE file = CreateFileW(
-        L"spielzeug.iso",
+        isoFilePath,
         GENERIC_WRITE,
         0,
         NULL,

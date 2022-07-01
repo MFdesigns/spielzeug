@@ -16,10 +16,21 @@ struct Terminal {
     u32 columnCount;
 };
 
-u32 counter = 0;
+void terminalPutChar(struct Terminal* term, char c) {
+    if (c == '\r') {
+        return;
+    }
 
-#if 0
-void putChar(struct Terminal* term, char c) {
+    if (c == '\n') {
+        if (term->cursorY + 1 >= term->rowCount) {
+            term->cursorY = 0;
+        } else {
+            term->cursorY++;
+        }
+        term->cursorX = 0;
+        return;
+    }
+
     u32 glyphIndex = CHAR_MAP[c];
     u32 glyphSize = CHAR_WIDTH * CHAR_HEIGHT;
     u8* glyph = &CHAR_BMP[glyphIndex * glyphSize];
@@ -30,16 +41,13 @@ void putChar(struct Terminal* term, char c) {
         &term->frameBuffer[originY * term->screenWidth + originX];
     for (u32 i = 0; i < glyphSize; i++) {
         u8 color = glyph[i];
-        if (color > 0) {
-            color = counter % 255;
-        }
 
         u32 x = i % CHAR_WIDTH;
         u32 y = i / CHAR_WIDTH;
         struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL* pixel = &origin[y * term->screenWidth + x];
-        pixel->Red = 0;
+        pixel->Red = color;
         pixel->Green = color;
-        pixel->Blue = 0;
+        pixel->Blue = color;
         pixel->Reserved = 0;
     }
 
@@ -53,7 +61,6 @@ void putChar(struct Terminal* term, char c) {
         term->cursorY = 0;
     }
 }
-#endif
 
 void putChar(void* instance, char c) {
     struct EFI_SYSTEM_TABLE* systemTable = instance;
@@ -61,39 +68,20 @@ void putChar(void* instance, char c) {
     systemTable->ConOut->OutputString(systemTable->ConOut, tempChar);
 }
 
-EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
-    struct EFI_BOOT_SERVICES* bootServices = SystemTable->BootServices;
+EFI_STATUS efi_main(void* imageHandle, struct EFI_SYSTEM_TABLE* systemTable) {
+    struct EFI_BOOT_SERVICES* bootServices = systemTable->BootServices;
+    formatInit(systemTable, putChar);
 
-    SystemTable->ConOut->ClearScreen(SystemTable->ConOut);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, (char16*)u"Starting...\r\n");
-
-    formatInit(SystemTable, putChar);
-    format("Hello from Format: {}\r\n", fmt((u32)0xAA));
-#if 0
+    systemTable->ConOut->ClearScreen(systemTable->ConOut);
+    systemTable->ConOut->OutputString(systemTable->ConOut, (char16*)u"Starting...\r\n");
 
     // UEFI Revision
-    u16 efiMajor = SystemTable->Hdr.Revision >> 16;
-    u16 efiMinor = SystemTable->Hdr.Revision & 0xFF;
+    u16 efiMajor = systemTable->Hdr.Revision >> 16;
+    u16 efiMinor = systemTable->Hdr.Revision & 0xFF;
 
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"UEFI Revision ");
-    char16 buffer[255];
-    uintToString(buffer, (u64)efiMajor);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u".");
-
-    uintToString(buffer, (u64)efiMinor);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    // UEFI Firmware
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Firmware Vendor ");
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, SystemTable->FirmwareVendor);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Firmware Revision ");
-    uintToString(buffer, (u64)SystemTable->FirmwareRevision);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
+    format("UEFI Revision {}.{}\r\n", fmt(efiMajor), fmt(efiMinor));
+    format("Firmware Vendor {}\r\n", fmt(systemTable->FirmwareVendor));
+    format("Firmware Revision {}\r\n", fmt(systemTable->FirmwareRevision));
 
     // Graphics stuff
 
@@ -106,82 +94,18 @@ EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
     );
 
     if (res != EFI_SUCCESS) {
-        SystemTable->ConOut->OutputString(SystemTable->ConOut, u"ERROR: could not get protocol interface for GraphicsOutput\r\n");
+        systemTable->ConOut->OutputString(systemTable->ConOut, u"ERROR: could not get protocol interface for GraphicsOutput\r\n");
     }
 
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Max Mode ");
-    uintToString(buffer, (u64)graphicsInterface->Mode->MaxMode);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-    
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Mode ");
-    uintToString(buffer, (u64)graphicsInterface->Mode->Mode);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Size of Info ");
-    uintToHexString(buffer, (u64)graphicsInterface->Mode->SizeOfInfo);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Frame Buffer Base 0x");
-    uintToHexString(buffer, (u64)graphicsInterface->Mode->FrameBufferBase);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Frame Buffer Size ");
-    uintToString(buffer, graphicsInterface->Mode->FrameBufferSize);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Horizontal Resolution ");
-    uintToString(buffer, graphicsInterface->Mode->Info->HorizontalResolution);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Vertical Resolution ");
-    uintToString(buffer, graphicsInterface->Mode->Info->VerticalResolution);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Pixel Format 0x");
-    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelFormat);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Pixel Information\r\n");
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"R 0x");
-    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelInformation.RedMask);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u" G 0x");
-    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelInformation.GreenMask);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u" B 0x");
-    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelInformation.BlueMask);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u" RESERVED 0x");
-    uintToHexString(buffer, graphicsInterface->Mode->Info->PixelInformation.ReservedMask);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"Pixels per Scanline ");
-    uintToString(buffer, graphicsInterface->Mode->Info->PixelsPerScanLine);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, buffer);
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, u"\r\n");
-
-    if (graphicsInterface->Mode->Info->PixelFormat != PixelBlueGreenRedReserved8BitPerColor) {
-        SystemTable->ConOut->OutputString(SystemTable->ConOut, u"ERROR: unsupported pixel format\r\n");
-    }
+    u32 screenWidth = graphicsInterface->Mode->Info->HorizontalResolution;
+    u32 screenHeight = graphicsInterface->Mode->Info->VerticalResolution;
 
     u32 pageCount = (CHAR_COUNT * CHAR_WIDTH * CHAR_HEIGHT * 4) / PAGE_SIZE + 1;
     EFI_PHYSICAL_ADDRESS glyphBuffer;
     EFI_STATUS allocRes = bootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, pageCount, &glyphBuffer); 
     if (allocRes != EFI_SUCCESS) {
-        SystemTable->ConOut->OutputString(SystemTable->ConOut, (char16*)u"ERROR: could not allocate pages\r\n");
+        systemTable->ConOut->OutputString(systemTable->ConOut, (char16*)u"ERROR: could not allocate pages\r\n");
     }
-
-    u32 screenWidth = graphicsInterface->Mode->Info->HorizontalResolution;
-    u32 screenHeight = graphicsInterface->Mode->Info->VerticalResolution;
 
     struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL* glyphTexture = 
         (struct EFI_GRAPHICS_OUTPUT_BLT_PIXEL*)glyphBuffer;
@@ -198,8 +122,8 @@ EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
         pixel->Blue = bmp;
         pixel->Reserved = 0;
     }
-
     struct Terminal term = {
+
         .screenWidth = screenWidth,
         .screenHeight = screenHeight,
         .frameBuffer = frameBuffer,
@@ -209,28 +133,29 @@ EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
         .rowCount = screenHeight / CHAR_HEIGHT,
         .columnCount = screenWidth / CHAR_WIDTH,
     };
+    formatInit(&term, (PutCharFunc)terminalPutChar);
 
-    while (true) {
-        char c = (counter % 10) + '0';
-        putChar(&term, c);
-        counter++;
+    format("Max Mode {}\r\n", fmt(graphicsInterface->Mode->MaxMode));
+    format("Mode {}\r\n", fmt(graphicsInterface->Mode->Mode));
+    format("Size of Info 0x{X}\r\n", fmt(graphicsInterface->Mode->SizeOfInfo));
+    format("Frame Buffer Base 0x{X}\r\n", fmt(graphicsInterface->Mode->FrameBufferBase));
+    format("Frame Buffer Size {}\r\n", fmt(graphicsInterface->Mode->FrameBufferSize));
+
+    format("Resolution {}x{}\r\n", fmt(screenWidth), fmt(screenHeight));
+
+    format("Pixel Format 0x{X}\r\n", fmt((u64)graphicsInterface->Mode->Info->PixelFormat));
+    format("Pixel Mask R 0x{X} G 0x{X} B 0x{X} RESERVED 0x{X}\r\n",
+           fmt(graphicsInterface->Mode->Info->PixelInformation.RedMask),
+           fmt(graphicsInterface->Mode->Info->PixelInformation.GreenMask),
+           fmt(graphicsInterface->Mode->Info->PixelInformation.BlueMask),
+           fmt(graphicsInterface->Mode->Info->PixelInformation.ReservedMask)
+    );
+
+    format("Pixels per Scanline {}\r\n", fmt(graphicsInterface->Mode->Info->PixelsPerScanLine));
+
+    if (graphicsInterface->Mode->Info->PixelFormat != PixelBlueGreenRedReserved8BitPerColor) {
+        systemTable->ConOut->OutputString(systemTable->ConOut, u"ERROR: unsupported pixel format\r\n");
     }
-
-#endif
-
-#if 0
-    putChar(&term, '0');
-    putChar(&term, '1');
-    putChar(&term, '2');
-    putChar(&term, '3');
-    putChar(&term, '4');
-    putChar(&term, '5');
-    putChar(&term, '6');
-    putChar(&term, '7');
-    putChar(&term, '8');
-    putChar(&term, '9');
-    putChar(&term, '!');
-#endif
 
 #if 0
     // Memory map
@@ -278,7 +203,7 @@ EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
     }
 #endif
 
-    SystemTable->ConOut->OutputString(SystemTable->ConOut, (char16*)u"Bye...\r\n");
+    systemTable->ConOut->OutputString(systemTable->ConOut, (char16*)u"Bye...\r\n");
 
     while(true) {};
     return EFI_SUCCESS;

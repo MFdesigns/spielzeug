@@ -56,7 +56,7 @@ void fmtUintToString(u64 num) {
         firstDigit = INT64_MAX_DIGITS - 1;
     }
     
-    u32 digitCount = (INT64_MAX_DIGITS + 1) - firstDigit;
+    u32 digitCount = INT64_MAX_DIGITS - firstDigit;
     for (u32 i = 0; i < digitCount; i++) {
         globalPutChar(globalPrintInstance, (char)buffer[firstDigit + i]);
     }
@@ -77,6 +77,9 @@ void fmtUintToHexString(u64 num, bool upperCase) {
         'c', 'd', 'e', 'f'
     };
 
+    char buffer[16] = {};
+    u32 outIndex = 15;
+
     char* hexTable = hexTableLower;
     if (upperCase) {
         hexTable = hexTableUpper;
@@ -85,22 +88,35 @@ void fmtUintToHexString(u64 num, bool upperCase) {
     if (num == 0) {
         globalPutChar(globalPrintInstance, '0');
     } else {
-
         u64 remainder = num % 16;
         while (num != 0) {
             u64 quotient = num / 16;
-            globalPutChar(globalPrintInstance, hexTable[remainder]);
+            buffer[outIndex] = hexTable[remainder];
+            outIndex--;
             num = quotient;
             remainder = num % 16;
         }
     }
+
+    for (u32 i = 0; i < 16 - outIndex; i++) {
+        globalPutChar(globalPrintInstance, buffer[outIndex + i + 1]);
+    }
+}
+
+void fmtChar16ToChar(char16* str) {
+    char16 c = *str;
+    while (c != '\0') {
+        globalPutChar(globalPrintInstance, (char)c);
+        c = *(++str);
+    }
 }
 
 enum FormatArgType {
-    ARG_U8,
-    ARG_U16,
-    ARG_U32,
-    ARG_U64
+    FMT_U8,
+    FMT_U16,
+    FMT_U32,
+    FMT_U64,
+    FMT_CHAR16_PTR,
 };
 
 struct FormatArg {
@@ -111,9 +127,9 @@ struct FormatArg {
 // NOTE: not really sure why we need to do this but if we dont then
 // __COUNTER__ will not get replaced...
 #define internalFormatMacro2(str, counter, ...) \
-    const char tmp_fmt_str_ ## counter[] = str; \
+    const char* tmp_fmt_str_ ## counter = str; \
     struct FormatArg tmp_fmt_args_ ## counter [] = { __VA_ARGS__ }; \
-    internalPrintFormat(tmp_fmt_str_ ## counter, sizeof(tmp_fmt_str_ ## counter), tmp_fmt_args_ ## counter, sizeof(tmp_fmt_args_ ## counter) / sizeof(tmp_fmt_args_ ## counter[0]))
+    internalPrintFormat(tmp_fmt_str_ ## counter, sizeof(str), tmp_fmt_args_ ## counter, sizeof(tmp_fmt_args_ ## counter) / sizeof(tmp_fmt_args_ ## counter[0]))
 
 #define internalFormatMacro(str, counter, ...) \
     internalFormatMacro2(str, counter, __VA_ARGS__)
@@ -121,7 +137,14 @@ struct FormatArg {
 #define format(str, ...) \
     internalFormatMacro(str, __COUNTER__, __VA_ARGS__)
 
-#define fmt(var) { _Generic(var, u8: ARG_U8, u16: ARG_U16, u32: ARG_U32, u64: ARG_U64), var }
+#define fmt(var) {              \
+    _Generic(var,               \
+        u8:      FMT_U8,        \
+        u16:     FMT_U16,       \
+        u32:     FMT_U32,       \
+        u64:     FMT_U64,       \
+        char16*: FMT_CHAR16_PTR \
+    ), (u64)var }
 
 struct FormatStringParser {
     const char* string;
@@ -188,17 +211,21 @@ void internalPrintFormat(const char* format, u32 formatSize, struct FormatArg* a
 
             if (argIndex < argCount) {
                 struct FormatArg* arg = &args[argIndex];
-                u64 data = 0;
-                switch (specifier.flags) {
-                case FMT_SPEC_DECIMAL:
-                    fmtUintToString(arg->data);
-                    break;
-                case FMT_SPEC_HEX_UPPERCASE:
-                    fmtUintToHexString(arg->data, true);
-                    break;
-                case FMT_SPEC_HEX_LOWERCASE:
-                    fmtUintToHexString(arg->data, false);
-                    break;
+
+                if (arg->type == FMT_CHAR16_PTR) {
+                    fmtChar16ToChar((char16*)arg->data);
+                } else {
+                    switch (specifier.flags) {
+                    case FMT_SPEC_DECIMAL:
+                        fmtUintToString(arg->data);
+                        break;
+                    case FMT_SPEC_HEX_UPPERCASE:
+                        fmtUintToHexString(arg->data, true);
+                        break;
+                    case FMT_SPEC_HEX_LOWERCASE:
+                        fmtUintToHexString(arg->data, false);
+                        break;
+                    }
                 }
 
                 argIndex++;

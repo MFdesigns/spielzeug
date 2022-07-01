@@ -17,6 +17,11 @@ void copyMemory(u8* dest, u8* src, u32 size) {
     }
 }
 
+void* memset(void* dest, s32 ch, u32 count) {
+    setMemory((u8*)dest, (u64)count, (u8)ch);
+    return dest;
+}
+
 typedef void (*PutCharFunc) (void* instance, char c);
 
 void* globalPrintInstance = 0;

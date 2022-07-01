@@ -18,6 +18,7 @@ struct Terminal {
 
 u32 counter = 0;
 
+#if 0
 void putChar(struct Terminal* term, char c) {
     u32 glyphIndex = CHAR_MAP[c];
     u32 glyphSize = CHAR_WIDTH * CHAR_HEIGHT;
@@ -52,12 +53,23 @@ void putChar(struct Terminal* term, char c) {
         term->cursorY = 0;
     }
 }
+#endif
+
+void putChar(void* instance, char c) {
+    struct EFI_SYSTEM_TABLE* systemTable = instance;
+    char16 tempChar[2] = { (char16)c, '\0' };
+    systemTable->ConOut->OutputString(systemTable->ConOut, tempChar);
+}
 
 EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
     struct EFI_BOOT_SERVICES* bootServices = SystemTable->BootServices;
 
     SystemTable->ConOut->ClearScreen(SystemTable->ConOut);
     SystemTable->ConOut->OutputString(SystemTable->ConOut, (char16*)u"Starting...\r\n");
+
+    formatInit(SystemTable, putChar);
+    format("Hello from Format: {}\r\n", fmt((u32)0xAA));
+#if 0
 
     // UEFI Revision
     u16 efiMajor = SystemTable->Hdr.Revision >> 16;
@@ -203,6 +215,8 @@ EFI_STATUS efi_main(void* ImageHandle, struct EFI_SYSTEM_TABLE* SystemTable) {
         putChar(&term, c);
         counter++;
     }
+
+#endif
 
 #if 0
     putChar(&term, '0');
